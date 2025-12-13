@@ -1,7 +1,7 @@
-audeeo
 *.o
 *.dll
 *.a
 *.ttf
 
 include/external
+build/

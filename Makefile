@@ -8,19 +8,15 @@ EXTERNAL_INCLUDE_DIR = include/external
 INCLUDE_DIR = include
 LIBS_DIR    = libs
 
-CPP_SRCS = main.cpp \
-           $(wildcard core/*.cpp) \
-           $(wildcard gui/*.cpp)
-C_SRCS   = $(wildcard gui/*.c)
+CPP_SRCS = main.cpp $(wildcard core/*.cpp) $(wildcard gui/*.cpp)
+
 SHADER_SRCS = gui/text.vs gui/text.fs 
 FONT_SRCS = $(wildcard fonts/*.ttf)
 
 FONTS = $(patsubst fonts/%,$(BUILD_DIR)/fonts/%,$(FONT_SRCS))
 
-SHADERS = $(patsubst gui/%.vs,$(BUILD_DIR)/%.vs,$(filter %.vs,$(SHADER_SRCS))) \
-          $(patsubst gui/%.fs,$(BUILD_DIR)/%.fs,$(filter %.fs,$(SHADER_SRCS)))
-OBJS = $(patsubst %.cpp,$(BUILD_DIR)/%.o,$(CPP_SRCS)) \
-       $(patsubst %.c,$(BUILD_DIR)/%.o,$(C_SRCS))
+SHADERS = $(patsubst gui/%.vs,$(BUILD_DIR)/%.vs,$(filter %.vs,$(SHADER_SRCS))) $(patsubst gui/%.fs,$(BUILD_DIR)/%.fs,$(filter %.fs,$(SHADER_SRCS)))
+OBJS = $(patsubst %.cpp,$(BUILD_DIR)/%.o,$(CPP_SRCS))
 
 CXXFLAGS = -std=c++17 -Wall -Wextra -Wno-unused-parameter -g -I$(EXTERNAL_INCLUDE_DIR) -I$(INCLUDE_DIR)
 CFLAGS   = -Wall -Wextra -g -I$(EXTERNAL_INCLUDE_DIR) -I$(INCLUDE_DIR)

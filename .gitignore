@@ -4,6 +4,5 @@
 *.ttf
 
 include/external
-!include/external/deps.txt
 
 build/

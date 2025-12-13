@@ -1,9 +1,7 @@
 audeeo
 *.o
+*.dll
+*.a
+*.ttf
 
-stt/models/*
-stt/fonts/*
-
-t2t/.venv/*
-
-
+include/external

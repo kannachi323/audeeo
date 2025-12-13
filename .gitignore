@@ -1,0 +1,9 @@
+audeeo
+*.o
+
+stt/models/*
+stt/fonts/*
+
+t2t/.venv/*
+
+

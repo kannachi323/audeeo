@@ -1,9 +1,8 @@
-audeeo
 *.o
+*.dll
+*.a
+*.ttf
 
-stt/models/*
-stt/fonts/*
+include/external
 
-t2t/.venv/*
-
-
+build/

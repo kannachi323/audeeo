@@ -1,0 +1,5 @@
+freetype
+glad
+GLFW
+glm
+utf8

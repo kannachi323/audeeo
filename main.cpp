@@ -1,8 +1,9 @@
 #include <iostream>
 #include <glm/glm.hpp>
 
-#include <audeeo/window.h>
-#include <audeeo/text_renderer.h>
+#include "audeeo/window.h"
+#include "audeeo/text_renderer.h"
+#include "audeeo/audio_text.h"
 
 int main() {
     try {
@@ -17,6 +18,9 @@ int main() {
         // Load fonts (Latin and CJK)
         textRenderer.LoadFont("fonts/NotoSans-Regular.ttf", 48, CharSet::Latin_ASCII);
         textRenderer.LoadFont("fonts/NotoSansSC-Regular.ttf", 48, CharSet::CJK_Unified_Ideographs);
+
+        AudioText audioText("../models/vosk-model-cn-0.22");
+        audioText.start();
 
         // --- Main Render Loop ---
         while (!window.shouldClose()) {

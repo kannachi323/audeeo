@@ -41,6 +41,7 @@ target_include_directories(${TARGET} PUBLIC
     ${DEV_ROOT_PATH}/freetype-2.14.1/include
     ${DEV_ROOT_PATH}/glfw-3.4/include
     ${DEV_ROOT_PATH}/utfcpp/include
+    ${DEV_ROOT_PATH}/portaudio/include
 )
 
 set(LOCAL_LIBS_DIR ${CMAKE_SOURCE_DIR}/libs)
@@ -49,6 +50,7 @@ target_link_libraries(${TARGET} PUBLIC
     ${LOCAL_LIBS_DIR}/libglfw3.a
     ${LOCAL_LIBS_DIR}/libfreetype.a
     ${LOCAL_LIBS_DIR}/libvosk.lib
+    ${LOCAL_LIBS_DIR}/libportaudio.dll.a
 
     opengl32
     gdi32

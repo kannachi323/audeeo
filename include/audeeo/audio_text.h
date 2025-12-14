@@ -6,12 +6,11 @@
 #include <vector>
 #include <thread>
 #include <condition_variable>
-
 #include <vosk/vosk_api.h>
 
 class AudioText {
 public:
-    AudioText(std::string model_path);
+    AudioText(std::string modelPath);
     ~AudioText();
 
     void start();

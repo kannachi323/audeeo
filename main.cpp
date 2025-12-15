@@ -13,6 +13,7 @@ int main() {
 
         Window window = Window(WIDTH, HEIGHT, "audeeo");
 
+       
         /*
         TextRenderer textRenderer(WIDTH, HEIGHT, "text.vs", "text.fs");
         textRenderer.LoadFont("fonts/NotoSans-Regular.ttf", 48, CharSet::Latin_ASCII);
@@ -30,6 +31,8 @@ int main() {
         audioProcessor.findLoopbackDevice();
 
         audioProcessor.start();
+
+        
         
 
         while (!window.shouldClose()) {

@@ -13,8 +13,10 @@ public:
     AudioText(std::string modelPath);
     ~AudioText();
 
-    void start();
-    void stop();
+    void Start();
+    void Stop();
+
+    void LoadAudioChunks(std::vector<void*>& audioChunks); //careful, this needs to have proper synchronization
 
 private:
     void processAudio();
@@ -25,4 +27,5 @@ private:
     std::vector<void*> audio_queue_;
     VoskModel* model_;
     VoskRecognizer* recognizer_;
+    std::queue<float*> audioChunks_;
 };

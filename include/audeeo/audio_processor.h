@@ -1,43 +1,68 @@
 #pragma once
+#define _CRT_SECURE_NO_WARNINGS
 
-#include <iostream>
-#include <portaudio.h>
+#include <windows.h>
+#include <mmdeviceapi.h>
+#include <audioclient.h>
+#include <functiondiscoverykeys_devpkey.h>
+#include <propvarutil.h>
+
+#include <cstdio>
+#include <cmath>
+#include <algorithm>
+#include <cstdint>
 #include <vector>
-#include <queue>
-#include <mutex>
-#include "pa_win_wasapi.h"
+#include <stdexcept>
+#include <iostream>
 
-constexpr int VOSK_TARGET_RATE = 16000;
-constexpr int FRAMES_PER_BUFFER = 4096; 
+struct WavHeader {
+    char riff[4] = { 'R','I','F','F' };
+    uint32_t size = 0;
+    char wave[4] = { 'W','A','V','E' };
 
-using AudioChunk = std::vector<float>;
+    char fmt[4] = { 'f','m','t',' ' };
+    uint32_t fmtSize = 16;
+    uint16_t formatTag;
+    uint16_t channels;
+    uint32_t sampleRate;
+    uint32_t byteRate;
+    uint16_t blockAlign;
+    uint16_t bitsPerSample;
 
-// Global variables to store the actual required settings found during device search
-extern int ACTUAL_CAPTURE_CHANNELS;
-extern double ACTUAL_CAPTURE_RATE;
+    char data[4] = { 'd','a','t','a' };
+    uint32_t dataSize = 0;
+};
 
 class AudioProcessor {
 public:
-    AudioProcessor(std::queue<AudioChunk>& queue, std::mutex& mu);
+    AudioProcessor();
     ~AudioProcessor();
 
-    void start();
-    void stop();
+    void Init(UINT deviceIndex = 0);
+    void InitAudioCollection();
+    void InitAudioDevice(UINT deviceIndex = 0);
+    void InitAudioFormat();
+    void InitAudioEventHandle();
+    void InitAudioStream();
+    void InitAudioClient();
+    void InitAudioCaptureClient();
+    void InitWAVHeader(WavHeader& header);
 
-    // Utility function to find the specific loopback device
-    PaDeviceIndex findLoopbackDevice();
+    void Start();
+    void Stop();
+
+    void ListAudioDevices();
+    void LoadAudioChunks(std::queue<float*>& audioChunks); //careful, this needs to have proper synchronization
 
 private:
-    PaStream *stream = nullptr;
-    std::queue<AudioChunk>& audioQueue;
-    std::mutex& queueMutex;
+    UINT deviceCount_;
+    IMMDeviceCollection* collection_ = nullptr;
+    IMMDevice* device_ = nullptr;
+    IAudioClient* audioClient_ = nullptr;
+    IAudioCaptureClient* audioCaptureClient_ = nullptr;
+    WAVEFORMATEX* format_ = nullptr;
+    HANDLE audioEventHandle_ = nullptr;
 
-    static int paCallback(
-        const void *inputBuffer, void *outputBuffer,
-        unsigned long framesPerBuffer,
-        const PaStreamCallbackTimeInfo *timeInfo,
-        PaStreamCallbackFlags statusFlags,
-        void *userData);
-
-    void appendAudioData(const float* data, size_t size);
+    bool isProcessing_ = false;
+    std::queue<float*> audioChunks_;
 };

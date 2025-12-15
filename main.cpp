@@ -7,30 +7,33 @@
 #include "audeeo/text_renderer.h"
 #include "audeeo/audio_text.h"
 #include "audeeo/audio_processor.h"
+#include "audeeo/audio_queue.h"
 
-struct AudioChunkQueue {
-    //audio chunks are 32-bit floats stored in a thread-safe queue
-    std::queue<float*> audioChunks;
-    std::mutex mu;
-    std::condition_variable cv;
-};
-
-struct TranslationEngine {
+struct SubtitleEngine {
     AudioProcessor audioProcessor;
-    AudioText audioText{"models/vosk-model-small-en-us-0.15"};
-    Translator translator{"models/opus-mt-zn-en"};
+    AudioText audioText;
     AudioQueue audioQueue;
 };
 
 int main() {
-    TranslationEngine translationEngine;
+    SubtitleEngine engine;
+    engine.audioText.Init("../models/vosk-model-cn-0.22");
+    engine.audioProcessor.Init();
+
+    engine.audioText.LoadAudioQueue(&engine.audioQueue);
+    engine.audioProcessor.LoadAudioQueue(&engine.audioQueue);
 
     try {     
-        translationEngine.audioProcessor.Init(); 
-        translationEngine.audioText.Start();
-        audioProcessor.ListAudioDevices();
-        std::thread(&AudioProcessor::Start, this).detach();
+        engine.audioProcessor.ListAudioDevices();
+        std::thread audioThread(&AudioProcessor::Start, &engine.audioProcessor);
         
+        std::thread textThread(&AudioText::Start, &engine.audioText);
+
+        std::cout << "Audio and Text threads started. Waiting for them to finish (or close the window)..." << std::endl;
+
+        audioThread.join();
+        textThread.join();
+
     } catch (const std::runtime_error& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;

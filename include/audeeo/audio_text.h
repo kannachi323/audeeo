@@ -7,16 +7,18 @@
 #include <thread>
 #include <condition_variable>
 #include <vosk/vosk_api.h>
+#include "audeeo/audio_queue.h"
 
 class AudioText {
 public:
-    AudioText(std::string modelPath);
+    AudioText();
     ~AudioText();
+    void Init(std::string modelPath);
 
     void Start();
     void Stop();
 
-    void LoadAudioChunks(std::vector<void*>& audioChunks); //careful, this needs to have proper synchronization
+    void LoadAudioQueue(AudioQueue* audioQueue); //careful, this needs to have proper synchronization
 
 private:
     void processAudio();
@@ -27,5 +29,5 @@ private:
     std::vector<void*> audio_queue_;
     VoskModel* model_;
     VoskRecognizer* recognizer_;
-    std::queue<float*> audioChunks_;
+    AudioQueue* audioQueue_;
 };

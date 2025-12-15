@@ -14,6 +14,7 @@
 #include <vector>
 #include <stdexcept>
 #include <iostream>
+#include "audeeo/audio_queue.h"
 
 struct WavHeader {
     char riff[4] = { 'R','I','F','F' };
@@ -52,7 +53,7 @@ public:
     void Stop();
 
     void ListAudioDevices();
-    void LoadAudioChunks(std::queue<float*>& audioChunks); //careful, this needs to have proper synchronization
+    void LoadAudioQueue(AudioQueue* audioQueue); //careful, this needs to have proper synchronization
 
 private:
     UINT deviceCount_;
@@ -64,5 +65,5 @@ private:
     HANDLE audioEventHandle_ = nullptr;
 
     bool isProcessing_ = false;
-    std::queue<float*> audioChunks_;
+    AudioQueue* audioQueue_;
 };

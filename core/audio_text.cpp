@@ -1,27 +1,29 @@
 #include "audeeo/audio_text.h"
 
-AudioText::AudioText(std::string model_path) : running_(false) {
-    model_ = vosk_model_new(model_path.c_str());
-    if (!model_) {
-        throw std::runtime_error("Failed to load Vosk model from path: " + model_path);
-    }
-    recognizer_ = vosk_recognizer_new(model_, 16000.0f);
-    if (!recognizer_) {
-        vosk_model_free(model_);
-        throw std::runtime_error("Failed to create Vosk recognizer.");
-    }
-}
+AudioText::AudioText() : running_(false) {}
 
 AudioText::~AudioText() {
-    stop();
+    Stop();
     vosk_recognizer_free(recognizer_);
     vosk_model_free(model_);
 }
 
+void AudioText::Init(std::string modelPath) {
+    model_ = vosk_model_new(modelPath.c_str());
+    if (!model_) {
+        throw std::runtime_error("Failed to load Vosk model from path: " + modelPath);
+    }
+
+    recognizer_ = vosk_recognizer_new(model_, 16000.0f);
+    if (!recognizer_) {
+        vosk_model_free(model_);
+        throw std::runtime_error("Failed to create Vosk recognizer");
+    }
+}
+
 void AudioText::Start() {
     // Implementation for starting audio processing
-    
-    std::thread(&AudioText::processAudio, this).detach();
+    processAudio();
 }
 
 void AudioText::Stop() {
@@ -31,12 +33,32 @@ void AudioText::Stop() {
     cv_.notify_all();
 }
 
+void AudioText::LoadAudioQueue(AudioQueue* audioQueue) {
+    audioQueue_ = audioQueue;
+}
 
-std::queue<float*> audioChunks_;
 void AudioText::processAudio() {
+    running_ = true;
     while (running_) {
+        float* audioChunk = audioQueue_->Pop();
+        if (!audioChunk) continue;
 
-        const char* partial_json = vosk_recognizer_partial_result(recognizer_);
-        std::cout << partial_json << std::endl;
+        int numSamples = audioQueue_->GetSampleCount();
+
+        if (numSamples == 0) throw std::runtime_error("Audio chunk has zero samples");
+
+        int final = vosk_recognizer_accept_waveform_f(
+            recognizer_,
+            audioChunk,
+            numSamples
+        );
+
+        if (final) {
+            std::cout << vosk_recognizer_result(recognizer_) << std::endl;
+        } else {
+            std::cout << vosk_recognizer_partial_result(recognizer_) << std::endl;
+        }
+        std::fflush(stdout);
     }
 }
+

@@ -11,7 +11,7 @@ AudioProcessor::AudioProcessor() : deviceCount_(0), isProcessing_(false) {
 }
 
 AudioProcessor::~AudioProcessor() {
-    StopAudioProcessor();
+    Stop();
     SAFE_RELEASE(audioCaptureClient_);
     SAFE_RELEASE(audioClient_);
     SAFE_RELEASE(device_);
@@ -162,8 +162,14 @@ void AudioProcessor::Start() {
             peak = std::max(peak, std::fabs(s));
         }
 
-        std::printf("\rLevel: %.4f   ", peak);
+        //std::printf("\rLevel: %.4f   ", peak);
         std::fflush(stdout);
+
+        float* audioChunk = new float[sampleCount];
+        std::copy(samples, samples + sampleCount, audioChunk);
+        audioQueue_->Push(audioChunk);
+        audioQueue_->SetSampleCount(sampleCount);
+
 
         audioCaptureClient_->ReleaseBuffer(frames);
     }
@@ -194,4 +200,8 @@ void AudioProcessor::ListAudioDevices() {
         SAFE_RELEASE(props);
         SAFE_RELEASE(device);
     }
+}
+
+void AudioProcessor::LoadAudioQueue(AudioQueue* audioQueue) {
+    audioQueue_ = audioQueue;
 }

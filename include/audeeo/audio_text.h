@@ -5,6 +5,9 @@
 #include <mutex>
 #include <vector>
 #include <thread>
+#include <fstream>
+#include <cmath>
+#include <algorithm>
 #include <condition_variable>
 #include <vosk/vosk_api.h>
 #include "audeeo/audio_queue.h"

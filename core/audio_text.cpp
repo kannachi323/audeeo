@@ -38,27 +38,15 @@ void AudioText::LoadAudioQueue(AudioQueue* audioQueue) {
 }
 
 void AudioText::processAudio() {
-    running_ = true;
-    while (running_) {
-        float* audioChunk = audioQueue_->Pop();
-        if (!audioChunk) continue;
-
-        int numSamples = audioQueue_->GetSampleCount();
-
-        if (numSamples == 0) throw std::runtime_error("Audio chunk has zero samples");
-
-        int final = vosk_recognizer_accept_waveform_f(
-            recognizer_,
-            audioChunk,
-            numSamples
-        );
+    std::vector<int16_t> chunk;
+    while (audioQueue_->Pop(chunk)) {
+        const void* ptr = chunk.data();
+        int final = vosk_recognizer_accept_waveform(recognizer_, static_cast<const char*>(ptr), chunk.size() * sizeof(int16_t));
 
         if (final) {
             std::cout << vosk_recognizer_result(recognizer_) << std::endl;
         } else {
             std::cout << vosk_recognizer_partial_result(recognizer_) << std::endl;
         }
-        std::fflush(stdout);
     }
 }
-

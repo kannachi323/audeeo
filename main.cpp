@@ -12,16 +12,20 @@
 struct SubtitleEngine {
     AudioProcessor audioProcessor;
     AudioText audioText;
-    AudioQueue audioQueue;
 };
 
 int main() {
+    SetConsoleOutputCP(CP_UTF8);
+    AudioQueue audioQueue;
+
     SubtitleEngine engine;
     engine.audioText.Init("../models/vosk-model-cn-0.22");
     engine.audioProcessor.Init();
 
-    engine.audioText.LoadAudioQueue(&engine.audioQueue);
-    engine.audioProcessor.LoadAudioQueue(&engine.audioQueue);
+    engine.audioText.LoadAudioQueue(&audioQueue);
+    engine.audioProcessor.LoadAudioQueue(&audioQueue);
+
+    engine.translator.Init("../models/")
 
     try {     
         engine.audioProcessor.ListAudioDevices();

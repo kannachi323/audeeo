@@ -42,6 +42,7 @@ target_include_directories(${TARGET} PUBLIC
     ${DEV_ROOT_PATH}/glfw-3.4/include
     ${DEV_ROOT_PATH}/utfcpp/include
     ${DEV_ROOT_PATH}/portaudio/include
+    ${DEV_ROOT_PATH}/libsamplerate/include
 )
 
 set(LOCAL_LIBS_DIR ${CMAKE_SOURCE_DIR}/libs)
@@ -51,6 +52,7 @@ target_link_libraries(${TARGET} PUBLIC
     ${LOCAL_LIBS_DIR}/libfreetype.a
     ${LOCAL_LIBS_DIR}/libvosk.lib
     ${LOCAL_LIBS_DIR}/libportaudio.dll.a
+    ${LOCAL_LIBS_DIR}/libsamplerate.a
 
     opengl32
     gdi32

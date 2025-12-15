@@ -2,6 +2,8 @@
 #include <windows.h>
 #include <mmdeviceapi.h>
 #include <audioclient.h>
+#include <functiondiscoverykeys_devpkey.h>
+#include <propvarutil.h>
 
 #include <cstdio>
 #include <cmath>
@@ -33,25 +35,58 @@ int main() {
     CoInitialize(nullptr);
 
     IMMDeviceEnumerator* enumerator = nullptr;
+    hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator), (void**)&enumerator);
+    if (FAILED(hr)) return 1;
+
+    // Enumerate all active playback devices
+    IMMDeviceCollection* collection = nullptr;
+    hr = enumerator->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, &collection);
+    if (FAILED(hr)) return 1;
+
+    UINT count = 0;
+    collection->GetCount(&count);
+    if (count == 0) {
+        printf("No active playback devices found.\n");
+        return 1;
+    }
+
+    printf("Active playback devices:\n");
+    for (UINT i = 0; i < count; ++i) {
+        IMMDevice* dev = nullptr;
+        collection->Item(i, &dev);
+
+        IPropertyStore* props = nullptr;
+        dev->OpenPropertyStore(STGM_READ, &props);
+
+        PROPVARIANT varName;
+        PropVariantInit(&varName);
+        props->GetValue(PKEY_Device_FriendlyName, &varName);
+
+        wprintf(L"%u: %s\n", i, varName);
+
+        PropVariantClear(&varName);
+        props->Release();
+        dev->Release();
+    }
+
+    UINT choice = 0;
+    printf("Select device index to capture: ");
+    scanf("%u", &choice);
+    if (choice >= count) {
+        printf("Invalid device index.\n");
+        return 1;
+    }
+
     IMMDevice* device = nullptr;
+    collection->Item(choice, &device);
+
+    SAFE_RELEASE(collection);
+    SAFE_RELEASE(enumerator);
+
     IAudioClient* audioClient = nullptr;
     IAudioCaptureClient* captureClient = nullptr;
 
-    // Get default output device
-    hr = CoCreateInstance(
-        __uuidof(MMDeviceEnumerator), nullptr,
-        CLSCTX_ALL, __uuidof(IMMDeviceEnumerator),
-        (void**)&enumerator
-    );
-    if (FAILED(hr)) return 1;
-
-    hr = enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &device);
-    if (FAILED(hr)) return 1;
-
-    hr = device->Activate(
-        __uuidof(IAudioClient), CLSCTX_ALL,
-        nullptr, (void**)&audioClient
-    );
+    hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void**)&audioClient);
     if (FAILED(hr)) return 1;
 
     WAVEFORMATEX* format = nullptr;
@@ -59,7 +94,6 @@ int main() {
 
     HANDLE eventHandle = CreateEvent(nullptr, FALSE, FALSE, nullptr);
 
-    // Shared mode loopback
     hr = audioClient->Initialize(
         AUDCLNT_SHAREMODE_SHARED,
         AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
@@ -69,13 +103,10 @@ int main() {
 
     audioClient->SetEventHandle(eventHandle);
 
-    hr = audioClient->GetService(
-        __uuidof(IAudioCaptureClient),
-        (void**)&captureClient
-    );
+    hr = audioClient->GetService(__uuidof(IAudioCaptureClient), (void**)&captureClient);
     if (FAILED(hr)) return 1;
 
-    // ---- WAV FILE SETUP ----
+    // --- WAV setup ---
     FILE* file = fopen("output.wav", "wb");
 
     WavHeader header{};
@@ -83,7 +114,7 @@ int main() {
     header.channels = format->nChannels;
     header.sampleRate = format->nSamplesPerSec;
     header.bitsPerSample = 16;
-    header.blockAlign = header.channels * 2; // 2 bytes per sample
+    header.blockAlign = header.channels * 2;
     header.byteRate = header.sampleRate * header.blockAlign;
 
     fwrite(&header, sizeof(header), 1, file);
@@ -91,6 +122,8 @@ int main() {
 
     audioClient->Start();
     printf("Recording system audio to output.wav (Ctrl+C to stop)\n");
+
+    const float noiseThreshold = 0.00001f; // very gentle noise gate
 
     while (true) {
         WaitForSingleObject(eventHandle, INFINITE);
@@ -101,20 +134,15 @@ int main() {
 
         hr = captureClient->GetBuffer(&data, &frames, &flags, nullptr, nullptr);
         if (FAILED(hr)) break;
-
         if (frames == 0) continue;
 
         float* samples = (float*)data;
         int sampleCount = frames * format->nChannels;
-
         float peak = 0.f;
-        const float noiseThreshold = 0.00001f; // very gentle noise gate
 
         for (int i = 0; i < sampleCount; ++i) {
             float s = samples[i];
-            if (fabsf(s) < noiseThreshold) s = 0.f; // noise gate
-
-            // update peak
+            if (fabsf(s) < noiseThreshold) s = 0.f;
             peak = std::max(peak, fabsf(s));
 
             int16_t outSample = (int16_t)(std::max(-1.f, std::min(1.f, s)) * 32767);
@@ -130,7 +158,7 @@ int main() {
 
     audioClient->Stop();
 
-    // ---- FIX WAV HEADER ----
+    // --- Fix WAV header ---
     header.dataSize = totalBytesWritten;
     header.size = totalBytesWritten + sizeof(WavHeader) - 8;
 
@@ -141,10 +169,8 @@ int main() {
     SAFE_RELEASE(captureClient);
     SAFE_RELEASE(audioClient);
     SAFE_RELEASE(device);
-    SAFE_RELEASE(enumerator);
     CoTaskMemFree(format);
     CloseHandle(eventHandle);
     CoUninitialize();
     return 0;
 }
-

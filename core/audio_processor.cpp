@@ -1,133 +1,197 @@
-#include "audeeo/audio_processor.h"
-#include <cstring>
+#include <audeeo/audio_processor.h>
+#include <stdexcept>
+#include <algorithm>
+#include <cmath>
+#include <iostream>
 
-int ACTUAL_CAPTURE_CHANNELS = 0;
-double ACTUAL_CAPTURE_RATE = 0.0;
+#define SAFE_RELEASE(x) if (x) { x->Release(); x = nullptr; }
 
-AudioProcessor::AudioProcessor(std::queue<AudioChunk>& queue, std::mutex& mu)
-    : audioQueue(queue), queueMutex(mu)
-{
-    Pa_Initialize();
+AudioProcessor::AudioProcessor() : deviceCount_(0), isProcessing_(false) {
+    CoInitialize(nullptr);
 }
 
-AudioProcessor::~AudioProcessor()
-{
-    stop();
-    Pa_Terminate();
-}
-
-PaDeviceIndex AudioProcessor::findLoopbackDevice()
-{
-    int hostApiCount = Pa_GetHostApiCount();
-    for (int i = 0; i < hostApiCount; ++i)
-    {
-        const PaHostApiInfo* host = Pa_GetHostApiInfo(i);
-        if (host && host->type == paWASAPI)
-        {
-            std::cout << "Using host API: " << host->name << "\n";
-            return host->defaultOutputDevice;
-        }
+AudioProcessor::~AudioProcessor() {
+    StopAudioProcessor();
+    SAFE_RELEASE(audioCaptureClient_);
+    SAFE_RELEASE(audioClient_);
+    SAFE_RELEASE(device_);
+    SAFE_RELEASE(collection_);
+    if (format_) {
+        CoTaskMemFree(format_);
+        format_ = nullptr;
     }
-
-    std::cerr << "WASAPI host API not found\n";
-    return paNoDevice;
+    if (audioEventHandle_) {
+        CloseHandle(audioEventHandle_);
+        audioEventHandle_ = nullptr;
+    }
+    CoUninitialize();
 }
 
-void AudioProcessor::start()
-{
-    if (stream)
-        return;
+void AudioProcessor::Init(UINT deviceIndex) {
+    InitAudioCollection();
+    InitAudioDevice(deviceIndex);
+    InitAudioClient();
+    InitAudioFormat();
+    InitAudioEventHandle();
+    InitAudioStream();
+    InitAudioCaptureClient();
+}
 
-    PaDeviceIndex device = findLoopbackDevice();
-    if (device == paNoDevice)
-        return;
-
-    const PaDeviceInfo* info = Pa_GetDeviceInfo(device);
-    std::cout << "Using device: " << info->name << "\n";
-
-    ACTUAL_CAPTURE_RATE = info->defaultSampleRate;
-    ACTUAL_CAPTURE_CHANNELS =
-        info->maxInputChannels > 0
-            ? info->maxInputChannels
-            : info->maxOutputChannels;
-
-    // WASAPI loopback info
-    PaWasapiStreamInfo wasapiInfo;
-    std::memset(&wasapiInfo, 0, sizeof(wasapiInfo));
-    wasapiInfo.size = sizeof(PaWasapiStreamInfo);
-    wasapiInfo.hostApiType = paWASAPI;
-    wasapiInfo.version = 1;
-
-
-    PaStreamParameters inputParams;
-    std::memset(&inputParams, 0, sizeof(inputParams));
-    inputParams.device = device;
-    inputParams.channelCount = ACTUAL_CAPTURE_CHANNELS;
-    inputParams.sampleFormat = paFloat32;
-    inputParams.suggestedLatency = info->defaultLowInputLatency;
-    inputParams.hostApiSpecificStreamInfo = &wasapiInfo;
-
-    PaError err = Pa_OpenStream(
-        &stream,
-        &inputParams,      // input (loopback!)
-        nullptr,           // no output
-        ACTUAL_CAPTURE_RATE,
-        FRAMES_PER_BUFFER,
-        paNoFlag,
-        &AudioProcessor::paCallback,
-        this
+void AudioProcessor::InitAudioCollection() {
+    IMMDeviceEnumerator* enumerator = nullptr;
+    HRESULT hr = CoCreateInstance(
+        __uuidof(MMDeviceEnumerator),
+        nullptr,
+        CLSCTX_ALL,
+        __uuidof(IMMDeviceEnumerator),
+        (void**)&enumerator
     );
+    if (FAILED(hr)) throw std::runtime_error("Device enumerator failed");
 
-    if (err != paNoError)
-    {
-        std::cerr << "Pa_OpenStream failed: "
-                  << Pa_GetErrorText(err) << "\n";
-        stream = nullptr;
-        return;
+    hr = enumerator->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, &collection_);
+    SAFE_RELEASE(enumerator);
+    if (FAILED(hr)) throw std::runtime_error("EnumAudioEndpoints failed");
+
+    UINT count = 0;
+    hr = collection_->GetCount(&count);
+    if (FAILED(hr) || count == 0) throw std::runtime_error("No devices found");
+
+    deviceCount_ = count;
+}
+
+void AudioProcessor::InitAudioDevice(UINT index) {
+    if (index >= deviceCount_) throw std::runtime_error("Invalid device index");
+    HRESULT hr = collection_->Item(index, &device_);
+    if (FAILED(hr)) throw std::runtime_error("Failed to get device");
+}
+
+void AudioProcessor::InitAudioClient() {
+    HRESULT hr = device_->Activate(
+        __uuidof(IAudioClient),
+        CLSCTX_ALL,
+        nullptr,
+        (void**)&audioClient_
+    );
+    if (FAILED(hr)) throw std::runtime_error("Activate IAudioClient failed");
+}
+
+void AudioProcessor::InitAudioFormat() {
+    if (format_) {
+        CoTaskMemFree(format_);
+        format_ = nullptr;
     }
-
-    Pa_StartStream(stream);
+    HRESULT hr = audioClient_->GetMixFormat(&format_);
+    if (FAILED(hr)) throw std::runtime_error("GetMixFormat failed");
 }
 
-void AudioProcessor::stop()
-{
-    if (!stream)
-        return;
-
-    Pa_StopStream(stream);
-    Pa_CloseStream(stream);
-    stream = nullptr;
+void AudioProcessor::InitAudioEventHandle() {
+    audioEventHandle_ = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+    if (!audioEventHandle_) throw std::runtime_error("CreateEvent failed");
 }
 
-int AudioProcessor::paCallback(
-    const void *inputBuffer,
-    void * /*outputBuffer*/,
-    unsigned long framesPerBuffer,
-    const PaStreamCallbackTimeInfo*,
-    PaStreamCallbackFlags,
-    void *userData)
-{
-    auto* self = static_cast<AudioProcessor*>(userData);
+void AudioProcessor::InitAudioStream() {
+    HRESULT hr = audioClient_->Initialize(
+        AUDCLNT_SHAREMODE_SHARED,
+        AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_LOOPBACK,
+        0,
+        0,
+        format_,
+        nullptr
+    );
+    if (FAILED(hr)) throw std::runtime_error("Initialize failed");
 
-    if (!inputBuffer)
-        return paContinue;
-
-    const float* in = static_cast<const float*>(inputBuffer);
-    size_t samples = framesPerBuffer * ACTUAL_CAPTURE_CHANNELS;
-
-    self->appendAudioData(in, samples);
-
-    return paContinue;
+    hr = audioClient_->SetEventHandle(audioEventHandle_);
+    if (FAILED(hr)) throw std::runtime_error("SetEventHandle failed");
 }
 
-void AudioProcessor::appendAudioData(const float* data, size_t size)
-{
-    AudioChunk chunk(data, data + size);
-
-    std::lock_guard<std::mutex> lock(queueMutex);
-    audioQueue.push(std::move(chunk));
+void AudioProcessor::InitAudioCaptureClient() {
+    HRESULT hr = audioClient_->GetService(
+        __uuidof(IAudioCaptureClient),
+        (void**)&audioCaptureClient_
+    );
+    if (FAILED(hr)) throw std::runtime_error("GetService failed");
 }
 
+void AudioProcessor::InitWAVHeader(WavHeader& header) {
+    header.formatTag = 1;
+    header.channels = format_->nChannels;
+    header.sampleRate = format_->nSamplesPerSec;
+    header.bitsPerSample = 16;
+    header.blockAlign = header.channels * 2;
+    header.byteRate = header.sampleRate * header.blockAlign;
+}
 
+void AudioProcessor::Start() {
+    if (!audioClient_ || !audioCaptureClient_ || !format_ || !audioEventHandle_)
+        throw std::runtime_error("Not initialized");
 
+    bool isFloat = format_->wFormatTag == WAVE_FORMAT_EXTENSIBLE &&
+        ((WAVEFORMATEXTENSIBLE*)format_)->SubFormat ==
+        KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
 
+    if (!isFloat) throw std::runtime_error("Mix format not float");
+
+    HRESULT hr = audioClient_->Start();
+    if (FAILED(hr)) throw std::runtime_error("Start failed");
+
+    isProcessing_ = true;
+    const float noiseThreshold = 0.00001f;
+
+    while (isProcessing_) {
+        WaitForSingleObject(audioEventHandle_, INFINITE);
+
+        BYTE* data = nullptr;
+        UINT32 frames = 0;
+        DWORD flags = 0;
+
+        hr = audioCaptureClient_->GetBuffer(&data, &frames, &flags, nullptr, nullptr);
+        if (FAILED(hr)) throw std::runtime_error("GetBuffer failed");
+
+        if (frames == 0) {
+            audioCaptureClient_->ReleaseBuffer(0);
+            continue;
+        }
+
+        float* samples = static_cast<float*>(static_cast<void*>(data));
+        int sampleCount = frames * format_->nChannels;
+        float peak = 0.0f;
+
+        for (int i = 0; i < sampleCount; ++i) {
+            float s = samples[i];
+            if (std::fabs(s) < noiseThreshold) s = 0.0f;
+            peak = std::max(peak, std::fabs(s));
+        }
+
+        std::printf("\rLevel: %.4f   ", peak);
+        std::fflush(stdout);
+
+        audioCaptureClient_->ReleaseBuffer(frames);
+    }
+}
+
+void AudioProcessor::Stop() {
+    if (isProcessing_) {
+        isProcessing_ = false;
+        if (audioClient_) audioClient_->Stop();
+    }
+}
+
+void AudioProcessor::ListAudioDevices() {
+    for (UINT i = 0; i < deviceCount_; ++i) {
+        IMMDevice* device = nullptr;
+        collection_->Item(i, &device);
+
+        IPropertyStore* props = nullptr;
+        device->OpenPropertyStore(STGM_READ, &props);
+
+        PROPVARIANT varName;
+        PropVariantInit(&varName);
+        props->GetValue(PKEY_Device_FriendlyName, &varName);
+
+        std::wcout << L"Device: " << i << L": " << varName.pwszVal << std::endl;
+
+        PropVariantClear(&varName);
+        SAFE_RELEASE(props);
+        SAFE_RELEASE(device);
+    }
+}

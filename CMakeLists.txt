@@ -56,6 +56,10 @@ target_link_libraries(${TARGET} PUBLIC
     gdi32
     user32
     kernel32
+    ole32
+    uuid
+    winmm
+    ksguid
 )
 
 set(RES_DEST_DIR ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})

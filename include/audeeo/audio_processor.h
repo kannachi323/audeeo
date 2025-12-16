@@ -51,4 +51,9 @@ private:
     AudioQueue* audioQueue_;
 
     AudioResampler* resampler_;
+    
+    std::vector<int16_t> audioBuffer; //will hold ~1600 samples for 100ms at 16kHz
+
+    const static float NOISE_THRESHOLD_ = 0.0001f;
+    const static size_t CHUNK_THRESHOLD_ = 1600;
 };

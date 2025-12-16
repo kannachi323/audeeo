@@ -1,6 +1,5 @@
 #include <audeeo/queue.h>
 
-
 void AudioQueue::Push(std::vector<int16_t>&& chunk) {
     {
         std::lock_guard<std::mutex> lock(mu_);

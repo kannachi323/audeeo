@@ -6,8 +6,14 @@
 
 #define SAFE_RELEASE(x) if (x) { x->Release(); x = nullptr; }
 
+inline int16_t floatToInt16(float f) {
+    f = std::clamp(f, -1.0f, 1.0f);
+    return static_cast<int16_t>(f * 32767);
+}
+
 AudioProcessor::AudioProcessor() : deviceCount_(0), isProcessing_(false) {
     CoInitialize(nullptr);
+    resampler_ = new AudioResampler();
 }
 
 AudioProcessor::~AudioProcessor() {
@@ -35,6 +41,8 @@ void AudioProcessor::Init(UINT deviceIndex) {
     InitAudioEventHandle();
     InitAudioStream();
     InitAudioCaptureClient();
+
+    resampler_->init(format_->nSamplesPerSec, 16000); //format_ is expected to be non-null here
 }
 
 void AudioProcessor::InitAudioCollection() {
@@ -112,15 +120,6 @@ void AudioProcessor::InitAudioCaptureClient() {
     if (FAILED(hr)) throw std::runtime_error("GetService failed");
 }
 
-void AudioProcessor::InitWAVHeader(WavHeader& header) {
-    header.formatTag = 1;
-    header.channels = format_->nChannels;
-    header.sampleRate = format_->nSamplesPerSec;
-    header.bitsPerSample = 16;
-    header.blockAlign = header.channels * 2;
-    header.byteRate = header.sampleRate * header.blockAlign;
-}
-
 void AudioProcessor::Start() {
     if (!audioClient_ || !audioCaptureClient_ || !format_ || !audioEventHandle_)
         throw std::runtime_error("Not initialized");
@@ -152,27 +151,45 @@ void AudioProcessor::Start() {
             continue;
         }
 
-        float* samples = static_cast<float*>(static_cast<void*>(data));
-        int sampleCount = frames * format_->nChannels;
-        float peak = 0.0f;
+        float* samples = reinterpret_cast<float*>(data);
+        int channels = format_->nChannels;
 
-        for (int i = 0; i < sampleCount; ++i) {
-            float s = samples[i];
-            if (std::fabs(s) < noiseThreshold) s = 0.0f;
-            peak = std::max(peak, std::fabs(s));
+        // 1️⃣ Downmix to mono
+        std::vector<float> mono(frames);
+        float peak = 0.f;
+
+        for (UINT32 i = 0; i < frames; ++i) {
+            float sum = 0.f;
+            for (int ch = 0; ch < channels; ++ch)
+                sum += samples[i * channels + ch];
+
+            float monoSample = sum / channels;
+
+            // Apply noise threshold AFTER downmix
+            if (fabsf(monoSample) < noiseThreshold)
+                monoSample = 0.f;
+
+            mono[i] = monoSample;
+
+            peak = std::max(peak, fabsf(monoSample));
         }
 
-        //std::printf("\rLevel: %.4f   ", peak);
-        std::fflush(stdout);
 
-        float* audioChunk = new float[sampleCount];
-        std::copy(samples, samples + sampleCount, audioChunk);
-        audioQueue_->Push(audioChunk);
-        audioQueue_->SetSampleCount(sampleCount);
+        // 2️⃣ Resample mono → 16 kHz
+        std::vector<float> resampled;
+        resampler_->resample(mono.data(), mono.size(), resampled);
 
+        // 3️⃣ Convert to PCM16
+        std::vector<int16_t> pcm(resampled.size());
+        for (size_t i = 0; i < resampled.size(); ++i)
+            pcm[i] = floatToInt16(resampled[i]);
+
+        // 4️⃣ Push PCM16 to queue
+        audioQueue_->Push(std::move(pcm));
 
         audioCaptureClient_->ReleaseBuffer(frames);
     }
+
 }
 
 void AudioProcessor::Stop() {

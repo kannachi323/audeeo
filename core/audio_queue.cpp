@@ -1,42 +1,32 @@
 #include <audeeo/audio_queue.h>
 
-AudioQueue::AudioQueue() {}
 
-AudioQueue::~AudioQueue() {
-    while (!audioQueue_.empty()) {
-        float* chunk = audioQueue_.front();
-        audioQueue_.pop();
-        delete[] chunk;
+void AudioQueue::Push(std::vector<int16_t>&& chunk) {
+    {
+        std::lock_guard<std::mutex> lock(mu_);
+        queue_.push(chunk);
     }
-}
-
-void AudioQueue::Push(float* audioChunk) {
-    std::lock_guard<std::mutex> lock(mu_);
-    audioQueue_.push(audioChunk);
     cv_.notify_one();
 }
 
-float* AudioQueue::Pop() {
+bool AudioQueue::Pop(std::vector<int16_t>& out) {
     std::unique_lock<std::mutex> lock(mu_);
-    cv_.wait(lock, [this]() { return !audioQueue_.empty(); });
-    float* chunk = audioQueue_.front();
-    audioQueue_.pop();
+    cv_.wait(lock, [&]() {
+        return stopped_ || !queue_.empty();
+    });
 
-    return chunk;
-}
+    if (queue_.empty())
+        return false;
 
-bool AudioQueue::IsEmpty() {
-    std::lock_guard<std::mutex> lock(mu_);
-    return audioQueue_.empty();
-}
-
-bool AudioQueue::SetSampleCount(int count) {
-    std::lock_guard<std::mutex> lock(mu_);
-    sampleCount = count;
+    out = std::move(queue_.front());
+    queue_.pop();
     return true;
 }
 
-int AudioQueue::GetSampleCount() {
-    std::lock_guard<std::mutex> lock(mu_);
-    return sampleCount;
+void AudioQueue::Stop() {
+    {
+        std::lock_guard<std::mutex> lock(mu_);
+        stopped_ = true;
+    }
+    cv_.notify_all();
 }

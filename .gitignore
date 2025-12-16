@@ -7,3 +7,4 @@
 include/external
 build/
 models/
+*.venv/

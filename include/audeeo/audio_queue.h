@@ -1,26 +1,18 @@
 #pragma once
-
-#include <iostream>
 #include <queue>
+#include <vector>
 #include <mutex>
 #include <condition_variable>
 
-
 class AudioQueue {
 public:
-    AudioQueue();
-    ~AudioQueue();
-
-    void Push(float* audioChunk);
-    float* Pop();
-    bool IsEmpty();
-    bool SetSampleCount(int count);
-    int GetSampleCount();
+    void Push(std::vector<int16_t>&& chunk);
+    bool Pop(std::vector<int16_t>& out);
+    void Stop();
 
 private:
-    //audio chunks are 32-bit floats stored in a thread-safe queue
-    std::queue<float*> audioQueue_;
+    std::queue<std::vector<int16_t>> queue_;
     std::mutex mu_;
     std::condition_variable cv_;
-    int sampleCount;
+    bool stopped_ = false;
 };

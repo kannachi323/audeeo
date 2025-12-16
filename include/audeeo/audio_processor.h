@@ -14,25 +14,10 @@
 #include <vector>
 #include <stdexcept>
 #include <iostream>
+#include <fstream>
 #include "audeeo/audio_queue.h"
+#include "audeeo/audio_resampler.h"
 
-struct WavHeader {
-    char riff[4] = { 'R','I','F','F' };
-    uint32_t size = 0;
-    char wave[4] = { 'W','A','V','E' };
-
-    char fmt[4] = { 'f','m','t',' ' };
-    uint32_t fmtSize = 16;
-    uint16_t formatTag;
-    uint16_t channels;
-    uint32_t sampleRate;
-    uint32_t byteRate;
-    uint16_t blockAlign;
-    uint16_t bitsPerSample;
-
-    char data[4] = { 'd','a','t','a' };
-    uint32_t dataSize = 0;
-};
 
 class AudioProcessor {
 public:
@@ -47,7 +32,6 @@ public:
     void InitAudioStream();
     void InitAudioClient();
     void InitAudioCaptureClient();
-    void InitWAVHeader(WavHeader& header);
 
     void Start();
     void Stop();
@@ -66,4 +50,6 @@ private:
 
     bool isProcessing_ = false;
     AudioQueue* audioQueue_;
+
+    AudioResampler* resampler_;
 };

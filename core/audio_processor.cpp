@@ -2,10 +2,7 @@
 
 #define SAFE_RELEASE(x) if (x) { x->Release(); x = nullptr; }
 
-inline int16_t floatToInt16(float f) {
-    f = std::clamp(f, -1.0f, 1.0f);
-    return static_cast<int16_t>(f * 32767);
-}
+
 
 AudioProcessor::AudioProcessor() : deviceCount_(0), isProcessing_(false) {
     CoInitialize(nullptr);
@@ -130,15 +127,14 @@ void AudioProcessor::Start() {
     if (FAILED(hr)) throw std::runtime_error("Start failed");
 
     isProcessing_ = true;
-    const float noiseThreshold = 0.00001f;
+    BYTE* data = nullptr;
+    UINT32 frames = 0;
+    DWORD flags = 0;
 
     while (isProcessing_) {
         WaitForSingleObject(audioEventHandle_, INFINITE);
 
-        BYTE* data = nullptr;
-        UINT32 frames = 0;
-        DWORD flags = 0;
-
+        
         hr = audioCaptureClient_->GetBuffer(&data, &frames, &flags, nullptr, nullptr);
         if (FAILED(hr)) throw std::runtime_error("GetBuffer failed");
 
@@ -150,48 +146,49 @@ void AudioProcessor::Start() {
         float* samples = reinterpret_cast<float*>(data);
         int channels = format_->nChannels;
 
-        // 1️⃣ Downmix to mono
         std::vector<float> mono(frames);
-        float peak = 0.f;
+        downmixToMono(samples, mono.data(), frames, channels, mono);
 
-        for (UINT32 i = 0; i < frames; ++i) {
-            float sum = 0.f;
-            for (int ch = 0; ch < channels; ++ch)
-                sum += samples[i * channels + ch];
-
-            float monoSample = sum / channels;
-
-            // Apply noise threshold AFTER downmix
-            if (fabsf(monoSample) < noiseThreshold)
-                monoSample = 0.f;
-
-            mono[i] = monoSample;
-
-            peak = std::max(peak, fabsf(monoSample));
-        }
-
-
-        // 2️⃣ Resample mono → 16 kHz
         std::vector<float> resampled;
         resampler_->resample(mono.data(), mono.size(), resampled);
 
-        // 3️⃣ Convert to PCM16
         std::vector<int16_t> pcm(resampled.size());
-        for (size_t i = 0; i < resampled.size(); ++i)
-            pcm[i] = floatToInt16(resampled[i]);
+        convertToPCM16(resampled.data(), pcm.data(), resampled.size(), pcm);
 
-        // 4️⃣ Push PCM16 to queue
-        audioQueue_->Push(std::move(pcm));
+        audioBuffer_.push_back(std::move(pcm));
+
+        if (audioBuffer_.size() >= CHUNK_THRESHOLD_) {
+            audioQueue_->Push(std::move(audioBuffer_));
+            audioBuffer_.clear();
+        }
 
         audioCaptureClient_->ReleaseBuffer(frames);
     }
-
 }
 
 void AudioProcessor::Stop() {
     if (isProcessing_) {
         isProcessing_ = false;
         if (audioClient_) audioClient_->Stop();
+    }
+}
+
+void AudioProcessor::convertToPCM16(const float* input, int16_t* output, size_t frames, std::vector<int16_t>& pcm) {
+    for (size_t i = 0; i < resampled.size(); ++i)
+        resampled[i] = std::clamp(resampled[i], -1.0f, 1.0f);
+        pcm[i] = static_cast<int16_t>(input[i] * 32767);
+}
+
+void AudioProcessor::downmixToMono(const float* input, float* output, size_t frames, int channels, std::vector<float>& mono) {
+    for (UINT32 i = 0; i < frames; ++i) {
+        float sum = 0.f;
+        for (int ch = 0; ch < channels; ++ch)
+            sum += input[i * channels + ch];
+        float monoSample = sum / channels;
+        mono[i] = monoSample;
+
+        //remove any static that was capture in the loopback when audio < 0
+        if (fabsf(monoSample) < noiseThreshold_) monoSample = 0.f;
     }
 }
 

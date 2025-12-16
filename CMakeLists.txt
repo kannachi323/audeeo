@@ -43,6 +43,8 @@ target_include_directories(${TARGET} PUBLIC
     ${DEV_ROOT_PATH}/utfcpp/include
     ${DEV_ROOT_PATH}/portaudio/include
     ${DEV_ROOT_PATH}/libsamplerate/include
+    ${DEV_ROOT_PATH}/CTranslate2/include
+    ${DEV_ROOT_PATH}/sentencepiece/src
 )
 
 set(LOCAL_LIBS_DIR ${CMAKE_SOURCE_DIR}/libs)
@@ -53,6 +55,8 @@ target_link_libraries(${TARGET} PUBLIC
     ${LOCAL_LIBS_DIR}/libvosk.lib
     ${LOCAL_LIBS_DIR}/libportaudio.dll.a
     ${LOCAL_LIBS_DIR}/libsamplerate.a
+    ${LOCAL_LIBS_DIR}/libctranslate2.dll.a
+    ${LOCAL_LIBS_DIR}/libsentencepiece.a
 
     opengl32
     gdi32

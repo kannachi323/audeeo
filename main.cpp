@@ -8,10 +8,14 @@
 #include "audeeo/audio_text.h"
 #include "audeeo/audio_processor.h"
 #include "audeeo/audio_queue.h"
+#include "audeeo/text_translator.h"
+
+#include <sentencepiece_processor.h>
 
 struct SubtitleEngine {
     AudioProcessor audioProcessor;
     AudioText audioText;
+    TextTranslator translator;
 };
 
 int main() {
@@ -19,24 +23,30 @@ int main() {
     AudioQueue audioQueue;
 
     SubtitleEngine engine;
+    /*
+    
+    
+    
     engine.audioText.Init("../models/vosk-model-cn-0.22");
     engine.audioProcessor.Init();
 
     engine.audioText.LoadAudioQueue(&audioQueue);
     engine.audioProcessor.LoadAudioQueue(&audioQueue);
 
-    engine.translator.Init("../models/")
+    */
+
+    engine.translator.init("../models/opus-mt-zh-en");
 
     try {     
-        engine.audioProcessor.ListAudioDevices();
-        std::thread audioThread(&AudioProcessor::Start, &engine.audioProcessor);
+        //engine.audioProcessor.ListAudioDevices();
+        //std::thread audioThread(&AudioProcessor::Start, &engine.audioProcessor);
         
-        std::thread textThread(&AudioText::Start, &engine.audioText);
+        //std::thread textThread(&AudioText::Start, &engine.audioText);
 
-        std::cout << "Audio and Text threads started. Waiting for them to finish (or close the window)..." << std::endl;
+        //std::cout << "Audio and Text threads started. Waiting for them to finish (or close the window)..." << std::endl;
 
-        audioThread.join();
-        textThread.join();
+        //audioThread.join();
+        //textThread.join();
 
     } catch (const std::runtime_error& e) {
         std::cerr << "Error: " << e.what() << std::endl;

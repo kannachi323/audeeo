@@ -6,7 +6,6 @@
 #include <audioclient.h>
 #include <functiondiscoverykeys_devpkey.h>
 #include <propvarutil.h>
-
 #include <cstdio>
 #include <cmath>
 #include <algorithm>
@@ -15,7 +14,7 @@
 #include <stdexcept>
 #include <iostream>
 #include <fstream>
-#include "audeeo/audio_queue.h"
+#include "audeeo/queue.h"
 #include "audeeo/audio_resampler.h"
 
 

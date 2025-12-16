@@ -1,8 +1,4 @@
-#include <audeeo/audio_processor.h>
-#include <stdexcept>
-#include <algorithm>
-#include <cmath>
-#include <iostream>
+#include "audeeo/audio_processor.h"
 
 #define SAFE_RELEASE(x) if (x) { x->Release(); x = nullptr; }
 

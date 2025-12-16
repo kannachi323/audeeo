@@ -45,6 +45,7 @@ target_include_directories(${TARGET} PUBLIC
     ${DEV_ROOT_PATH}/libsamplerate/include
     ${DEV_ROOT_PATH}/CTranslate2/include
     ${DEV_ROOT_PATH}/sentencepiece/src
+    ${DEV_ROOT_PATH}/json/include
 )
 
 set(LOCAL_LIBS_DIR ${CMAKE_SOURCE_DIR}/libs)

@@ -10,7 +10,8 @@
 #include <algorithm>
 #include <condition_variable>
 #include <vosk/vosk_api.h>
-#include "audeeo/audio_queue.h"
+#include <nlohmann/json.hpp>
+#include "audeeo/queue.h"
 
 class AudioText {
 public:
@@ -22,7 +23,8 @@ public:
     void Stop();
 
     void LoadAudioQueue(AudioQueue* audioQueue); //careful, this needs to have proper synchronization
-
+    void LoadTextQueue(TextQueue* sourceQueue);
+    
 private:
     void processAudio();
 
@@ -33,4 +35,5 @@ private:
     VoskModel* model_;
     VoskRecognizer* recognizer_;
     AudioQueue* audioQueue_;
+    TextQueue* sourceQueue_;
 };

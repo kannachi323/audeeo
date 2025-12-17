@@ -6,11 +6,15 @@
 #include <vector>
 #include <thread>
 #include <fstream>
+#include <string>
+#include <queue>
+#include <sstream>
 #include <cmath>
 #include <algorithm>
 #include <condition_variable>
 #include <vosk/vosk_api.h>
 #include <nlohmann/json.hpp>
+#include <fvad.h>
 #include "audeeo/queue.h"
 
 class AudioText {
@@ -18,12 +22,18 @@ public:
     AudioText();
     ~AudioText();
     void Init(std::string modelPath);
+    void initFvad(int mode, int sample_rate);
 
     void Start();
     void Stop();
 
     void LoadAudioQueue(AudioQueue* audioQueue); //careful, this needs to have proper synchronization
     void LoadTextQueue(TextQueue* sourceQueue);
+
+    bool getUpdatedText(const std::string& partialText, std::string& finalText);
+    void parse_vosk_partial(const char* partial_json, std::string& text);
+    void parse_vosk_final(const char* final_json, std::string& text);
+    void getLastNWords(const std::string& text, std::vector<std::string>& newWordsContext);
     
 private:
     void processAudio();
@@ -36,4 +46,11 @@ private:
     VoskRecognizer* recognizer_;
     AudioQueue* audioQueue_;
     TextQueue* sourceQueue_;
+
+    std::vector<std::string> wordsContext_;
+    constexpr static size_t MAX_CONTEXT_SIZE_ = 5;
+
+    Fvad* fvad_ = nullptr;
+
+
 };

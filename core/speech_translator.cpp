@@ -28,6 +28,7 @@ void audeeo::SpeechTranslator::run() {
     std::thread textThread(&AudioText::Start, &audioText_);
     std::thread translationThread(&TextTranslator::Start, &textTranslator_);
     
+    std::cout << "ready for translation" << std::endl;
     std::string output_text;
     while (targetQueue_.Pop(output_text)) {
         std::cout << "Output Text: " << output_text << std::endl;

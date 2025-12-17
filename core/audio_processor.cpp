@@ -2,11 +2,8 @@
 
 #define SAFE_RELEASE(x) if (x) { x->Release(); x = nullptr; }
 
-
-
 AudioProcessor::AudioProcessor() : deviceCount_(0), isProcessing_(false) {
     CoInitialize(nullptr);
-    resampler_ = new AudioResampler();
 }
 
 AudioProcessor::~AudioProcessor() {
@@ -35,7 +32,7 @@ void AudioProcessor::Init(UINT deviceIndex) {
     InitAudioStream();
     InitAudioCaptureClient();
 
-    resampler_->init(format_->nSamplesPerSec, 16000); //format_ is expected to be non-null here
+    resampler_.init(format_->nSamplesPerSec, 16000); //format_ is expected to be non-null here
 }
 
 void AudioProcessor::InitAudioCollection() {
@@ -132,9 +129,9 @@ void AudioProcessor::Start() {
     DWORD flags = 0;
 
     while (isProcessing_) {
+        // Wait for a buffer to be ready
         WaitForSingleObject(audioEventHandle_, INFINITE);
 
-        
         hr = audioCaptureClient_->GetBuffer(&data, &frames, &flags, nullptr, nullptr);
         if (FAILED(hr)) throw std::runtime_error("GetBuffer failed");
 
@@ -145,22 +142,17 @@ void AudioProcessor::Start() {
 
         float* samples = reinterpret_cast<float*>(data);
         int channels = format_->nChannels;
-
+        
         std::vector<float> mono(frames);
-        downmixToMono(samples, mono.data(), frames, channels, mono);
+        downmixToMono(samples, frames, channels, mono);
 
         std::vector<float> resampled;
-        resampler_->resample(mono.data(), mono.size(), resampled);
+        resampler_.resample(mono.data(), mono.size(), resampled);
 
         std::vector<int16_t> pcm(resampled.size());
         convertToPCM16(resampled.data(), pcm.data(), resampled.size(), pcm);
 
-        audioBuffer_.push_back(std::move(pcm));
-
-        if (audioBuffer_.size() >= CHUNK_THRESHOLD_) {
-            audioQueue_->Push(std::move(audioBuffer_));
-            audioBuffer_.clear();
-        }
+        audioQueue_->Push(std::move(pcm));
 
         audioCaptureClient_->ReleaseBuffer(frames);
     }
@@ -173,22 +165,23 @@ void AudioProcessor::Stop() {
     }
 }
 
+// Fixed signature to remove the redundant std::vector<int16_t>& pcm argument
 void AudioProcessor::convertToPCM16(const float* input, int16_t* output, size_t frames, std::vector<int16_t>& pcm) {
-    for (size_t i = 0; i < resampled.size(); ++i)
-        resampled[i] = std::clamp(resampled[i], -1.0f, 1.0f);
-        pcm[i] = static_cast<int16_t>(input[i] * 32767);
+    for (size_t i = 0; i < pcm.size(); ++i) {
+        pcm[i] = static_cast<int16_t>(std::clamp(input[i], -1.0f, 1.0f) * 32767);
+    }
 }
 
-void AudioProcessor::downmixToMono(const float* input, float* output, size_t frames, int channels, std::vector<float>& mono) {
+void AudioProcessor::downmixToMono(const float* input, size_t frames, int channels, std::vector<float>& mono) {
     for (UINT32 i = 0; i < frames; ++i) {
         float sum = 0.f;
         for (int ch = 0; ch < channels; ++ch)
             sum += input[i * channels + ch];
         float monoSample = sum / channels;
-        mono[i] = monoSample;
-
         //remove any static that was capture in the loopback when audio < 0
-        if (fabsf(monoSample) < noiseThreshold_) monoSample = 0.f;
+        if (fabsf(monoSample) < NOISE_THRESHOLD_) monoSample = 0.f;
+
+        mono[i] = monoSample;        
     }
 }
 

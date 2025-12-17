@@ -8,6 +8,9 @@ AudioText::~AudioText() {
     Stop();
     vosk_recognizer_free(recognizer_);
     vosk_model_free(model_);
+    if (fvad_) {
+        fvad_free(fvad_);
+    }
 }
 
 void AudioText::Init(std::string modelPath) {
@@ -20,6 +23,24 @@ void AudioText::Init(std::string modelPath) {
     if (!recognizer_) {
         vosk_model_free(model_);
         throw std::runtime_error("Failed to create Vosk recognizer");
+    }
+    initFvad(1, 16000);
+}
+
+void AudioText::initFvad(int mode, int sample_rate) {
+    fvad_ = fvad_new();
+    if (!fvad_) {
+        throw std::runtime_error("Failed to create Fvad instance");
+    }
+
+    if (fvad_set_mode(fvad_, mode) != 0) {
+        fvad_free(fvad_);
+        throw std::runtime_error("Failed to set Fvad mode");
+    }
+
+    if (fvad_set_sample_rate(fvad_, sample_rate) != 0) {
+        fvad_free(fvad_);
+        throw std::runtime_error("Failed to set Fvad sample rate");
     }
 }
 
@@ -43,52 +64,92 @@ void AudioText::LoadTextQueue(TextQueue* sourceQueue) {
     sourceQueue_ = sourceQueue;
 }
 
-inline void parse_vosk_partial(const char* partial_json, std::string& text) {
+void AudioText::parse_vosk_partial(const char* partial_json, std::string& text) {
     json data = json::parse(partial_json);
 
     text = data["partial"].get<std::string>();
 }
 
+void AudioText::parse_vosk_final(const char* final_json, std::string& text) {
+    json data = json::parse(final_json);
+
+    text = data["text"].get<std::string>();
+}
+
+void AudioText::getLastNWords(const std::string& text, std::vector<std::string>& newWordsContext) {
+    std::stringstream ss(text);
+    std::string word;
+
+    newWordsContext.clear();
+
+    while (ss >> word) {
+        newWordsContext.push_back(word);
+        if (newWordsContext.size() > MAX_CONTEXT_SIZE_)
+            newWordsContext.erase(newWordsContext.begin());
+    }
+}
+
+bool AudioText::getUpdatedText(const std::string& partialText, std::string& finalText) {
+    static size_t lastLen = 0;
+
+    if (partialText.empty()) return false;
+
+    if (partialText.size() < lastLen) {
+        wordsContext_.clear();
+        lastLen = 0;
+    }
+
+    if (partialText.size() == lastLen) return false;
+
+    std::string delta = partialText.substr(lastLen);
+    lastLen = partialText.size();
+
+    std::stringstream ss(delta);
+    std::string word;
+    bool changed = false;
+
+    while (ss >> word) {
+        wordsContext_.push_back(word);
+        if (wordsContext_.size() > MAX_CONTEXT_SIZE_)
+            wordsContext_.erase(wordsContext_.begin());
+        changed = true;
+    }
+
+    if (changed) finalText = partialText;
+    return changed;
+}
+
 void AudioText::processAudio() {
     std::vector<int16_t> chunk;
-    std::string lastPartial;
+    std::string partialText;
+    std::string finalText;
+    std::string updatedText;
+    int final;
 
     while (audioQueue_->Pop(chunk)) {
         if (chunk.empty()) continue;
 
-        // Treat chunk as raw bytes
-        const char* ptr = reinterpret_cast<const char*>(chunk.data()); // <-- still need some kind of reinterpret
-        size_t byteSize = chunk.size() * sizeof(int16_t);
+        size_t BUF_SIZE = chunk.size() * sizeof(int16_t);
 
-        // Instead of reinterpret_cast, we can copy data into a std::string
-        std::string buffer(reinterpret_cast<const char*>(chunk.data()), byteSize);
-
-        int accepted = vosk_recognizer_accept_waveform(
+        final = vosk_recognizer_accept_waveform(
             recognizer_,
-            buffer.data(),   // no cast needed here
-            buffer.size()
+            (const char*)chunk.data(),
+            BUF_SIZE
         );
 
-        // Partial result
-        std::string partialText;
-        parse_vosk_partial(vosk_recognizer_partial_result(recognizer_), partialText);
-
-        if (!partialText.empty() && partialText != lastPartial && sourceQueue_) {
-            sourceQueue_->Push(partialText);
-            lastPartial = partialText;
-        }
-
-        // Handle final result if utterance completed
-        if (accepted == 1) {
-            const char* finalJson = vosk_recognizer_result(recognizer_);
-            std::string finalText;
-            parse_vosk_partial(finalJson, finalText);
-            if (!finalText.empty() && sourceQueue_) {
-                sourceQueue_->Push(finalText);
+        
+        if (final) {
+            parse_vosk_final(vosk_recognizer_result(recognizer_), finalText);
+            sourceQueue_->Push(finalText + "</s>");
+            partialText.clear();
+            updatedText.clear();
+            finalText.clear();
+        } else {
+            parse_vosk_partial(vosk_recognizer_partial_result(recognizer_), partialText);
+            
+            if (getUpdatedText(partialText, updatedText)) {
+                sourceQueue_->Push(updatedText);
             }
-            lastPartial.clear();
         }
     }
 }
-
-

@@ -12,7 +12,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_compile_options(-Wall -Wextra -Wno-unused-parameter -g)
 
-find_path(DEV_ROOT_PATH NAMES freetype/include/ft2build.h
+find_path(DEV_ROOT_PATH
     PATHS ENV DEV_ROOT
     DOC "Path to your development libraries root (where freetype, glfw are installed).")
 
@@ -46,6 +46,8 @@ target_include_directories(${TARGET} PUBLIC
     ${DEV_ROOT_PATH}/CTranslate2/include
     ${DEV_ROOT_PATH}/sentencepiece/src
     ${DEV_ROOT_PATH}/json/include
+    ${DEV_ROOT_PATH}/libfvad/include
+    ${DEV_ROOT_PATH}/AudioFile
 )
 
 set(LOCAL_LIBS_DIR ${CMAKE_SOURCE_DIR}/libs)
@@ -58,6 +60,8 @@ target_link_libraries(${TARGET} PUBLIC
     ${LOCAL_LIBS_DIR}/libsamplerate.a
     ${LOCAL_LIBS_DIR}/libctranslate2.dll.a
     ${LOCAL_LIBS_DIR}/libsentencepiece.a
+    ${LOCAL_LIBS_DIR}/libfvad.a
+
 
     opengl32
     gdi32

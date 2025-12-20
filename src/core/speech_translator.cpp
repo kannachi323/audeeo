@@ -6,8 +6,15 @@ void audeeo::SpeechTranslator::init(
     const std::string& vosk_model_path,
     const std::string& ctranslate2_model_path,
     const std::string& encoder_model_path,
-    const std::string& decoder_model_path
+    const std::string& decoder_model_path,
+    OutputCallback callback
 ) {
+
+  
+    if (callback == nullptr) {
+        throw std::runtime_error("Output callback cannot be null");
+    }
+    callback_ = std::move(callback);
 
     audioProcessor_.Init();
     audioProcessor_.LoadAudioQueue(&audioQueue_);
@@ -27,10 +34,18 @@ void audeeo::SpeechTranslator::run() {
     std::thread audioThread(&AudioProcessor::Start, &audioProcessor_);
     std::thread textThread(&AudioText::Start, &audioText_);
     std::thread translationThread(&TextTranslator::Start, &textTranslator_);
-    
-    std::cout << "ready for translation" << std::endl;
+    callback_("Ready for translation...");
+
     std::string output_text;
     while (targetQueue_.Pop(output_text)) {
-        std::cout << "Output Text: " << output_text << std::endl;
+        callback_(output_text);
     }
+    
+}
+
+void audeeo::SpeechTranslator::stop() {
+    //close audio thread
+    //close text thread
+    //close translation thread
+    running_ = false;
 }

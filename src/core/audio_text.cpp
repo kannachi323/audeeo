@@ -1,4 +1,5 @@
 #include "audeeo/audio_text.h"
+#include <AudioFile.h>
 
 using json = nlohmann::json;
 
@@ -8,9 +9,6 @@ AudioText::~AudioText() {
     Stop();
     vosk_recognizer_free(recognizer_);
     vosk_model_free(model_);
-    if (fvad_) {
-        fvad_free(fvad_);
-    }
 }
 
 void AudioText::Init(std::string modelPath) {
@@ -24,25 +22,9 @@ void AudioText::Init(std::string modelPath) {
         vosk_model_free(model_);
         throw std::runtime_error("Failed to create Vosk recognizer");
     }
-    initFvad(1, 16000);
 }
 
-void AudioText::initFvad(int mode, int sample_rate) {
-    fvad_ = fvad_new();
-    if (!fvad_) {
-        throw std::runtime_error("Failed to create Fvad instance");
-    }
 
-    if (fvad_set_mode(fvad_, mode) != 0) {
-        fvad_free(fvad_);
-        throw std::runtime_error("Failed to set Fvad mode");
-    }
-
-    if (fvad_set_sample_rate(fvad_, sample_rate) != 0) {
-        fvad_free(fvad_);
-        throw std::runtime_error("Failed to set Fvad sample rate");
-    }
-}
 
 void AudioText::Start() {
     // Implementation for starting audio processing
@@ -119,36 +101,83 @@ bool AudioText::getUpdatedText(const std::string& partialText, std::string& fina
     return changed;
 }
 
+static inline std::string normalizeChinese(const std::string& text) {
+    std::string out;
+    out.reserve(text.size());
+    for (char c : text) {
+        if (c != ' ')
+            out.push_back(c);
+    }
+    return out;
+}
+
+static inline bool endsSentence(const std::string& s) {
+    if (s.empty()) return false;
+
+    const std::string endings[] = {"。", "！", "？"};
+    for (const auto& e : endings) {
+        if (s.size() >= e.size() &&
+            s.compare(s.size() - e.size(), e.size(), e) == 0)
+            return true;
+    }
+    return false;
+}
+
 void AudioText::processAudio() {
     std::vector<int16_t> chunk;
     std::string partialText;
     std::string finalText;
-    std::string updatedText;
-    int final;
+    std::string lastPartial;
+    std::string sentenceBuffer;
 
-    while (audioQueue_->Pop(chunk)) {
+    running_ = true;
+
+    while (running_ && audioQueue_->Pop(chunk)) {
         if (chunk.empty()) continue;
 
-        size_t BUF_SIZE = chunk.size() * sizeof(int16_t);
-
-        final = vosk_recognizer_accept_waveform(
+        int isFinal = vosk_recognizer_accept_waveform(
             recognizer_,
-            (const char*)chunk.data(),
-            BUF_SIZE
+            reinterpret_cast<const char*>(chunk.data()),
+            chunk.size() * sizeof(int16_t)
         );
 
-        
-        if (final) {
+        if (isFinal) {
             parse_vosk_final(vosk_recognizer_result(recognizer_), finalText);
+            if (finalText.empty()) continue;
+
+            // Normalize Chinese (remove spaces)
+            finalText = normalizeChinese(finalText);
+
+            // Buffer sentences for MT
+            sentenceBuffer += finalText;
+
+            // Emit FINAL subtitle (accurate)
             sourceQueue_->Push(finalText + "</s>");
-            partialText.clear();
-            updatedText.clear();
-            finalText.clear();
+
+            // Emit MT only on sentence boundary
+            if (endsSentence(finalText)) {
+                // 🔥 Send sentenceBuffer to opus-mt here
+                // translateQueue_->Push(sentenceBuffer);
+                sentenceBuffer.clear();
+            }
+
+            lastPartial.clear();
+
         } else {
-            parse_vosk_partial(vosk_recognizer_partial_result(recognizer_), partialText);
-            
-            if (getUpdatedText(partialText, updatedText)) {
-                sourceQueue_->Push(updatedText);
+            parse_vosk_partial(
+                vosk_recognizer_partial_result(recognizer_),
+                partialText
+            );
+
+            if (partialText.empty()) continue;
+
+            // Normalize partials for display only
+            partialText = normalizeChinese(partialText);
+
+            // Throttle partial spam
+            if (partialText.size() > lastPartial.size()) {
+                sourceQueue_->Push(partialText);
+                lastPartial = partialText;
             }
         }
     }

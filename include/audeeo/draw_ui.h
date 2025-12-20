@@ -4,10 +4,9 @@
 #include <imgui_impl_opengl3.h>
 #include <vector>
 #include <string>
+#include <windows.h>
+#include <shellapi.h>
 
-struct EngineMetrics {
-    float fps;
-};
 
 class DrawUI {
 public:
@@ -17,9 +16,8 @@ public:
     void start_frame();
     void end_frame();
 
-    void draw_main_menu_bar();
-    void draw_sound_settings_bar(float* volume, bool* mute);
-    void draw_debug_stats(const EngineMetrics& metrics);
+    void draw_bottom_menu_bar(float* volume, bool* mute);
     void draw_audio_source_modal(bool* open_trigger);
-    void draw_text(const std::string& text, ImVec2 pos, void* owner);
+    void draw_translation_text(const std::string& text);
+    void draw_support_me();
 };

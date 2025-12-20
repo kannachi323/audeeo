@@ -14,7 +14,7 @@
 #include <condition_variable>
 #include <vosk/vosk_api.h>
 #include <nlohmann/json.hpp>
-#include <fvad.h>
+
 #include "audeeo/queue.h"
 
 class AudioText {
@@ -22,7 +22,6 @@ public:
     AudioText();
     ~AudioText();
     void Init(std::string modelPath);
-    void initFvad(int mode, int sample_rate);
 
     void Start();
     void Stop();
@@ -49,8 +48,6 @@ private:
 
     std::vector<std::string> wordsContext_;
     constexpr static size_t MAX_CONTEXT_SIZE_ = 5;
-
-    Fvad* fvad_ = nullptr;
 
 
 };

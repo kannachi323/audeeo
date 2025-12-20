@@ -33,6 +33,8 @@ void AudioProcessor::Init(UINT deviceIndex) {
     InitAudioCaptureClient();
 
     resampler_.init(format_->nSamplesPerSec, 16000); //format_ is expected to be non-null here
+
+    InitFvad(1, 16000);
 }
 
 void AudioProcessor::InitAudioCollection() {
@@ -110,6 +112,23 @@ void AudioProcessor::InitAudioCaptureClient() {
     if (FAILED(hr)) throw std::runtime_error("GetService failed");
 }
 
+void AudioProcessor::InitFvad(int mode, int sample_rate) {
+    fvad_ = fvad_new();
+    if (!fvad_) {
+        throw std::runtime_error("Failed to create Fvad instance");
+    }
+
+    if (fvad_set_mode(fvad_, mode) != 0) {
+        fvad_free(fvad_);
+        throw std::runtime_error("Failed to set Fvad mode");
+    }
+
+    if (fvad_set_sample_rate(fvad_, sample_rate) != 0) {
+        fvad_free(fvad_);
+        throw std::runtime_error("Failed to set Fvad sample rate");
+    }
+}
+
 void AudioProcessor::Start() {
     if (!audioClient_ || !audioCaptureClient_ || !format_ || !audioEventHandle_)
         throw std::runtime_error("Not initialized");
@@ -127,6 +146,7 @@ void AudioProcessor::Start() {
     BYTE* data = nullptr;
     UINT32 frames = 0;
     DWORD flags = 0;
+
 
     while (isProcessing_) {
         // Wait for a buffer to be ready
@@ -151,6 +171,7 @@ void AudioProcessor::Start() {
 
         std::vector<int16_t> pcm(resampled.size());
         convertToPCM16(resampled.data(), pcm.data(), resampled.size(), pcm);
+
 
         audioQueue_->Push(std::move(pcm));
 

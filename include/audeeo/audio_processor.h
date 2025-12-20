@@ -14,6 +14,7 @@
 #include <stdexcept>
 #include <iostream>
 #include <fstream>
+#include <fvad.h>
 #include "audeeo/queue.h"
 #include "audeeo/audio_resampler.h"
 
@@ -31,6 +32,7 @@ public:
     void InitAudioStream();
     void InitAudioClient();
     void InitAudioCaptureClient();
+    void InitFvad(int mode, int sample_rate);
 
     void Start();
     void Stop();
@@ -59,4 +61,7 @@ private:
 
     constexpr static float NOISE_THRESHOLD_ = 0.0001f;
     constexpr static size_t CHUNK_THRESHOLD_ = 1600;
+
+    Fvad* fvad_ = nullptr;
+
 };

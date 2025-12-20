@@ -4,6 +4,8 @@
 #include "audeeo/audio_processor.h"
 #include "audeeo/audio_text.h"
 
+using OutputCallback = std::function<void(const std::string&)>;
+
 namespace audeeo {
     class SpeechTranslator {
         public:
@@ -14,10 +16,12 @@ namespace audeeo {
                 const std::string& vosk_model_path,
                 const std::string& ctranslate2_model_path,
                 const std::string& encoder_model_path,
-                const std::string& decoder_model_path
+                const std::string& decoder_model_path,
+                OutputCallback callback
             );
 
             void run();
+            void stop();
         
         private:
             AudioProcessor audioProcessor_;
@@ -26,5 +30,7 @@ namespace audeeo {
             AudioQueue audioQueue_;
             TextQueue sourceQueue_;
             TextQueue targetQueue_;
+            OutputCallback callback_;
+            bool running_ = false;
     };
 };

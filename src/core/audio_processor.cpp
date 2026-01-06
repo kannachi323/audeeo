@@ -172,7 +172,6 @@ void AudioProcessor::Start() {
         std::vector<int16_t> pcm(resampled.size());
         convertToPCM16(resampled.data(), pcm.data(), resampled.size(), pcm);
 
-
         audioQueue_->Push(std::move(pcm));
 
         audioCaptureClient_->ReleaseBuffer(frames);

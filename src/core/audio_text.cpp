@@ -1,5 +1,4 @@
 #include "audeeo/audio_text.h"
-#include <AudioFile.h>
 
 using json = nlohmann::json;
 
@@ -23,8 +22,6 @@ void AudioText::Init(std::string modelPath) {
         throw std::runtime_error("Failed to create Vosk recognizer");
     }
 }
-
-
 
 void AudioText::Start() {
     // Implementation for starting audio processing
@@ -101,83 +98,36 @@ bool AudioText::getUpdatedText(const std::string& partialText, std::string& fina
     return changed;
 }
 
-static inline std::string normalizeChinese(const std::string& text) {
-    std::string out;
-    out.reserve(text.size());
-    for (char c : text) {
-        if (c != ' ')
-            out.push_back(c);
-    }
-    return out;
-}
-
-static inline bool endsSentence(const std::string& s) {
-    if (s.empty()) return false;
-
-    const std::string endings[] = {"。", "！", "？"};
-    for (const auto& e : endings) {
-        if (s.size() >= e.size() &&
-            s.compare(s.size() - e.size(), e.size(), e) == 0)
-            return true;
-    }
-    return false;
-}
-
 void AudioText::processAudio() {
     std::vector<int16_t> chunk;
     std::string partialText;
     std::string finalText;
-    std::string lastPartial;
-    std::string sentenceBuffer;
+    std::string updatedText;
+    int final;
 
-    running_ = true;
-
-    while (running_ && audioQueue_->Pop(chunk)) {
+    while (audioQueue_->Pop(chunk)) {
         if (chunk.empty()) continue;
 
-        int isFinal = vosk_recognizer_accept_waveform(
+        size_t BUF_SIZE = chunk.size() * sizeof(int16_t);
+
+        final = vosk_recognizer_accept_waveform(
             recognizer_,
-            reinterpret_cast<const char*>(chunk.data()),
-            chunk.size() * sizeof(int16_t)
+            (const char*)chunk.data(),
+            BUF_SIZE
         );
 
-        if (isFinal) {
+        
+        if (final) {
             parse_vosk_final(vosk_recognizer_result(recognizer_), finalText);
-            if (finalText.empty()) continue;
-
-            // Normalize Chinese (remove spaces)
-            finalText = normalizeChinese(finalText);
-
-            // Buffer sentences for MT
-            sentenceBuffer += finalText;
-
-            // Emit FINAL subtitle (accurate)
             sourceQueue_->Push(finalText + "</s>");
-
-            // Emit MT only on sentence boundary
-            if (endsSentence(finalText)) {
-                // 🔥 Send sentenceBuffer to opus-mt here
-                // translateQueue_->Push(sentenceBuffer);
-                sentenceBuffer.clear();
-            }
-
-            lastPartial.clear();
-
+            partialText.clear();
+            updatedText.clear();
+            finalText.clear();
         } else {
-            parse_vosk_partial(
-                vosk_recognizer_partial_result(recognizer_),
-                partialText
-            );
-
-            if (partialText.empty()) continue;
-
-            // Normalize partials for display only
-            partialText = normalizeChinese(partialText);
-
-            // Throttle partial spam
-            if (partialText.size() > lastPartial.size()) {
-                sourceQueue_->Push(partialText);
-                lastPartial = partialText;
+            parse_vosk_partial(vosk_recognizer_partial_result(recognizer_), partialText);
+            
+            if (getUpdatedText(partialText, updatedText)) {
+                sourceQueue_->Push(updatedText);
             }
         }
     }

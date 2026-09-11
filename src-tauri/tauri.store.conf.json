@@ -1,0 +1,6 @@
+{
+ "bundle": {
+  "targets": ["app"],
+  "macOS": {"entitlements":"Entitlements.macOS.plist","minimumSystemVersion":"13.0"}
+ }
+}

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>Audeeo sign-in</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>audeeo</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Audeeo captures source audio for live captions and independent original and translated playback.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Audeeo requires microphone access to transcribe live speech and display real-time subtitles.</string>
+</dict>
+</plist>

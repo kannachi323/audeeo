@@ -1,0 +1,44 @@
+{
+  "name": "audeeo-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 1420",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "desktop": "tauri dev",
+    "mobile:android:init": "tauri android init",
+    "mobile:android": "tauri android dev",
+    "mobile:ios:init": "tauri ios init",
+    "mobile:ios": "tauri ios dev",
+    "test": "vitest run",
+    "check": "npm run test && npm run build && npm --prefix services/session-relay run typecheck",
+    "benchmark": "node --env-file=.env --experimental-strip-types scripts/benchmark.ts",
+    "test:database": "python3 scripts/test-database.py",
+    "test:soniox": "tsx scripts/check-soniox-live.mjs"
+  },
+  "dependencies": {
+    "@radix-ui/react-select": "^2.3.7",
+    "@revenuecat/purchases-js": "^1.60.1",
+    "@supabase/supabase-js": "^2.116.0",
+    "@tauri-apps/api": "^2.11.1",
+    "lucide-react": "^1.45.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^6.0.0",
+    "jsdom": "^30.0.1",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3",
+    "vite": "^8.1.5",
+    "vitest": "^5.0.0"
+  }
+}

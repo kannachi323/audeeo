@@ -1,0 +1,27 @@
+project_id = "audeeo"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 17
+
+[auth]
+enabled = true
+site_url = "http://localhost:1420"
+additional_redirect_urls = ["http://localhost:1420", "http://127.0.0.1:1420", "audeeo://auth/callback"]
+enable_signup = true
+enable_anonymous_sign_ins = false
+minimum_password_length = 8
+
+[auth.email]
+enable_signup = false
+
+# Configure Google/Apple credentials in the hosted dashboard.
+# Omitted provider properties are preserved by config push.

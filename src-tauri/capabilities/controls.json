@@ -1,0 +1,10 @@
+{
+  "identifier": "controls",
+  "description": "Transient local audio control popovers",
+  "windows": [
+    "controls-*"
+  ],
+  "permissions": [
+    "core:event:default"
+  ]
+}

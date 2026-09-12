@@ -1,0 +1,38 @@
+{
+  "duration": 30.304,
+  "sourceLanguage": "zh",
+  "targetLanguage": "en",
+  "segments": [
+    {
+      "start": 1.02,
+      "end": 5.14,
+      "sourceText": "从前，有三只小猪，决定各自盖一座房子。",
+      "translatedText": "Three little pigs decided to build a house for themselves."
+    },
+    {
+      "start": 5.76,
+      "end": 10.68,
+      "sourceText": "第一只小猪用草盖房。第二只用木头。第三只用砖头。",
+      "translatedText": "The first pig uses grass to cover the house, the second one uses wood, and the third uses bricks."
+    },
+    {
+      "start": 11.28,
+      "end": 17.26,
+      "sourceText": "一天，一只大灰狼来了。它吹倒了第一座房子，也吹倒了第二座房子。",
+      "translatedText": "One day, a big wolf came, he blew the first house, and the second house."
+    },
+    {
+      "start": 17.88,
+      "end": 24.5,
+      "sourceText": "两只小猪马上跑进红色的房子。大灰狼想吹倒红房子，但是红房子很坚固。",
+      "translatedText": "Two little pigs immediately ran into the red house, the wolf wanted to blow the red house, but the red house was very solid."
+    },
+    {
+      "start": 25.2,
+      "end": 29.88,
+      "sourceText": "三只小猪安全了。他们明白了，努力工作会带来安全。",
+      "translatedText": "Three pigs are safe, they understand, work hard will bring security."
+    }
+  ],
+  "description": "Prepared demonstration captions; not a current application benchmark."
+}

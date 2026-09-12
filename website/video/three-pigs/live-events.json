@@ -1,0 +1,166 @@
+{
+  "audio": "three-pigs-narration.wav",
+  "duration": 30.304,
+  "events": [
+    {
+      "time": 2.801,
+      "kind": "partial",
+      "text": "From the"
+    },
+    {
+      "time": 5.658,
+      "kind": "final",
+      "text": "Three little pigs decided to build a house for themselves."
+    },
+    {
+      "time": 7.456,
+      "kind": "partial",
+      "text": "The first"
+    },
+    {
+      "time": 8.018,
+      "kind": "partial",
+      "text": "The first pig used grass"
+    },
+    {
+      "time": 9.994,
+      "kind": "partial",
+      "text": "The first pig uses grass to cover the house, the second one uses wood, and the third one uses wood."
+    },
+    {
+      "time": 11.205,
+      "kind": "final",
+      "text": "The first pig uses grass to cover the house, the second one uses wood, and the third uses bricks."
+    },
+    {
+      "time": 12.984,
+      "kind": "partial",
+      "text": "One day, one"
+    },
+    {
+      "time": 14.094,
+      "kind": "partial",
+      "text": "One day, a big wolf came"
+    },
+    {
+      "time": 14.466,
+      "kind": "partial",
+      "text": "One day, a big wolf came, he w"
+    },
+    {
+      "time": 15.472,
+      "kind": "partial",
+      "text": "One day, a big wolf came, and he"
+    },
+    {
+      "time": 16.493,
+      "kind": "partial",
+      "text": "One day, a big wolf came, he blew the first house, and"
+    },
+    {
+      "time": 17.007,
+      "kind": "partial",
+      "text": "One day, a big wolf came, he blew the first house, and the second"
+    },
+    {
+      "time": 17.495,
+      "kind": "partial",
+      "text": "One day, a big wolf came, he blew the first house, and the second house."
+    },
+    {
+      "time": 17.701,
+      "kind": "final",
+      "text": "One day, a big wolf came, he blew the first house, and the second house."
+    },
+    {
+      "time": 19.609,
+      "kind": "partial",
+      "text": "Two"
+    },
+    {
+      "time": 20.053,
+      "kind": "partial",
+      "text": "Two little pigs"
+    },
+    {
+      "time": 20.556,
+      "kind": "partial",
+      "text": "Two little pigs immediately ran into the red"
+    },
+    {
+      "time": 21.048,
+      "kind": "partial",
+      "text": "Two little pigs immediately ran into the red house"
+    },
+    {
+      "time": 22.065,
+      "kind": "partial",
+      "text": "Two little pigs immediately ran into the red house, the wolf"
+    },
+    {
+      "time": 22.605,
+      "kind": "partial",
+      "text": "Two little pigs immediately ran into the red house, the wolf wanted to blow the red"
+    },
+    {
+      "time": 23.102,
+      "kind": "partial",
+      "text": "Two little pigs immediately ran into the red house, the wolf wanted to blow the red house"
+    },
+    {
+      "time": 23.616,
+      "kind": "partial",
+      "text": "Two little pigs immediately ran into the red house, the wolf wanted to blow the red house, but"
+    },
+    {
+      "time": 24.123,
+      "kind": "partial",
+      "text": "Two little pigs immediately ran into the red house, the wolf wanted to blow the red house, but the red house"
+    },
+    {
+      "time": 24.629,
+      "kind": "partial",
+      "text": "Two little pigs immediately ran into the red house, the wolf wanted to blow the red house, but the red house was very s"
+    },
+    {
+      "time": 24.936,
+      "kind": "final",
+      "text": "Two little pigs immediately ran into the red house, the wolf wanted to blow the red house, but the red house was very solid."
+    },
+    {
+      "time": 26.858,
+      "kind": "partial",
+      "text": "Three small pig"
+    },
+    {
+      "time": 27.434,
+      "kind": "partial",
+      "text": "Three small pigs are safe"
+    },
+    {
+      "time": 28.362,
+      "kind": "partial",
+      "text": "Three pigs are safe, they understand"
+    },
+    {
+      "time": 28.967,
+      "kind": "partial",
+      "text": "Three pigs are safe, they understand,"
+    },
+    {
+      "time": 29.381,
+      "kind": "partial",
+      "text": "Three pigs are safe, they understand, work hard will b"
+    },
+    {
+      "time": 29.898,
+      "kind": "partial",
+      "text": "Three pigs are safe, they understand, work hard will bring security"
+    },
+    {
+      "time": 30.282,
+      "kind": "final",
+      "text": "Three pigs are safe, they understand, work hard will bring security"
+    }
+  ]
+}

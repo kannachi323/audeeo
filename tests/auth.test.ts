@@ -16,9 +16,13 @@ vi.mock("../src/lib/config", () => ({
 }));
 vi.mock("@tauri-apps/api/core", () => ({
   isTauri: () => true,
-  invoke: vi.fn(async (command: string) =>
-    command === "take_oauth_callbacks" ? auth.pending.splice(0) : undefined,
-  ),
+  invoke: vi.fn(async (command: string) => {
+    if (command === "oauth_redirect_url")
+      return "http://127.0.0.1:49152/auth/callback";
+    return command === "take_oauth_callbacks"
+      ? auth.pending.splice(0)
+      : undefined;
+  }),
 }));
 vi.mock("@tauri-apps/api/event", () => ({
   listen: async (_name: string, callback: any) => {
@@ -42,7 +46,7 @@ afterEach(() => {
   auth.pending = [];
 });
 it.each(["google", "apple"] as const)(
-  "starts %s OAuth with the native PKCE callback",
+  "starts %s OAuth with the prepared native PKCE callback",
   async (provider) => {
     const { signIn } = await import("../src/lib/account");
     const { invoke } = await import("@tauri-apps/api/core");
@@ -54,10 +58,11 @@ it.each(["google", "apple"] as const)(
     expect(auth.oauth).toHaveBeenCalledWith({
       provider,
       options: {
-        redirectTo: "audeeo://auth/callback",
+        redirectTo: "http://127.0.0.1:49152/auth/callback",
         skipBrowserRedirect: true,
       },
     });
+    expect(invoke).toHaveBeenCalledWith("oauth_redirect_url");
     expect(invoke).toHaveBeenCalledWith("begin_oauth", {
       url: "https://auth.example.test/auth/v1/authorize",
     });

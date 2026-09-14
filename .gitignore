@@ -30,6 +30,11 @@ native/apple/.build/
 native/apple/.swiftpm/
 artifacts/
 
+# Retired local speech stack downloads
+fonts/
+libs/
+models/
+
 # Environment files and local credentials (examples contain placeholders only)
 .env.*
 !.env.example

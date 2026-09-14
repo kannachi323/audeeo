@@ -80,7 +80,10 @@ export function OverlaySettings({
       </div>
       <div className="setting-group">
         <label className="setting-toggle">
-          <span>Show original text</span>
+          <span>
+            Show original language
+            <small>When translating, reserve one line for the original and one for the translation.</small>
+          </span>
           <input
             type="checkbox"
             checked={showSource}

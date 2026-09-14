@@ -135,6 +135,11 @@ it("puts independent audio controls in the panel and returns from Settings", asy
   await user.click(screen.getByRole('button', {name:'Overlay settings'}));
   await user.click(screen.getByRole('button', {name:/Solid panel/}));
   expect(localStorage.getItem('audeeo.overlay-style')).toBe('panel');
+  const originalLanguage = screen.getByRole('checkbox', {name:/Show original language/}) as HTMLInputElement;
+  expect(originalLanguage.checked).toBe(true);
+  await user.click(originalLanguage);
+  expect(originalLanguage.checked).toBe(false);
+  expect(localStorage.getItem('audeeo.show-source')).toBe('false');
   await user.keyboard('{Escape}');
   expect(screen.getByRole('button', {name:'Start captions'})).toBeTruthy();
   expect(native.invoke).not.toHaveBeenCalledWith('hide_settings_window');
@@ -206,7 +211,7 @@ it('returns from History to the audio overlay icon without starting a session', 
 
 it('keeps one window size while switching popovers and restores focus on Escape', async () => {
   const user=userEvent.setup(); render(<App/>);
-  await waitFor(()=>expect(native.invoke).toHaveBeenCalledWith('resize_main_window',{height:420}));
+  await waitFor(()=>expect(native.invoke).toHaveBeenCalledWith('resize_main_window',{height:224}));
 
   const input=screen.getByRole('button',{name:'Input source'});
   await user.click(input);
@@ -229,7 +234,7 @@ it('keeps one window size while switching popovers and restores focus on Escape'
   fireEvent.pointerDown(screen.getByLabelText('Live captions'));
   expect(screen.queryByRole('dialog')).toBeNull();
   expect(native.invoke.mock.calls.filter(([name])=>name==='resize_main_window')).toHaveLength(1);
-  expect(native.invoke.mock.calls.filter(([name])=>name==='resize_main_window').at(-1)?.[1]).toEqual({height:420});
+  expect(native.invoke.mock.calls.filter(([name])=>name==='resize_main_window').at(-1)?.[1]).toEqual({height:224});
   expect(screen.queryByText('Ready to listen')).toBeNull();
   expect(screen.queryByText('Manual direction')).toBeNull();
   expect(screen.getByRole('toolbar',{name:'Caption controls'}).textContent).toBe('');

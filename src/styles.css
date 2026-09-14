@@ -19,6 +19,56 @@
 * {
   box-sizing: border-box;
 }
+/* Keep WebView2 and WebKit scrollbars visually identical: a floating pill
+   with no native arrow buttons, boxed track, or corner tile. */
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-track-piece,
+::-webkit-scrollbar-corner {
+  background: transparent;
+  border: 0;
+}
+::-webkit-scrollbar-thumb {
+  min-height: 28px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: #686868;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: #858585;
+}
+::-webkit-scrollbar-button {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent none !important;
+  background-image: none !important;
+}
+::-webkit-scrollbar-button:vertical:increment,
+::-webkit-scrollbar-button:vertical:decrement {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background-image: none !important;
+}
+::-webkit-scrollbar-button:horizontal:increment,
+::-webkit-scrollbar-button:horizontal:decrement {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background-image: none !important;
+}
 body {
   margin: 0;
 }
@@ -50,6 +100,44 @@ button svg {
   background: var(--card);
   overflow: hidden;
 }
+.window-drag-grip {
+  position: fixed;
+  z-index: 20;
+  top: 0;
+  left: 50%;
+  display: flex;
+  width: 96px;
+  height: 32px;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  transform: translateX(-50%);
+  background: transparent;
+  color: #a0a0a0;
+  cursor: grab;
+}
+.window-drag-grip-pill {
+  display: flex;
+  width: 24px;
+  height: 12px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #616161;
+  border-radius: 6px;
+  background: #303030;
+  opacity: 0;
+  transition: opacity 300ms ease 1800ms, background-color 120ms ease;
+}
+.window-drag-grip:hover .window-drag-grip-pill,
+.window-drag-grip:focus-visible .window-drag-grip-pill,
+.window-drag-grip:active .window-drag-grip-pill {
+  opacity: 1;
+  background: #4a4a4a;
+  transition-delay: 0ms;
+}
+.window-drag-grip:active { cursor: grabbing; }
+.window-drag-grip svg { width: 12px; height: 12px; }
 .panel-header {
   flex-shrink: 0;
   min-height: 44px;
@@ -162,7 +250,14 @@ input:disabled {
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
 }
+.subtitle-panel:not(.expanded) > .page-content {
+  overflow: hidden;
+  scrollbar-gutter: auto;
+}
 .captions {
+  display: grid;
+  align-content: start;
+  gap: 4px;
   padding: 10px 20px 16px;
   overflow-wrap: anywhere;
 }
@@ -178,7 +273,7 @@ input:disabled {
   font-size: var(--caption-size);
   line-height: 1.4;
   color: var(--bright);
-  margin-top: 6px !important;
+  margin-top: 0 !important;
 }
 .empty-caption p {
   font-size: 18px;
@@ -699,7 +794,6 @@ input[type="checkbox"] {
 .page-content { animation: page-enter 180ms ease-out; }
 @keyframes page-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 .caption-line { margin: 0; width: 100%; overflow: hidden; word-break: break-all; white-space: pre-wrap; text-shadow: 0 1px 4px black; }
-.captions { gap: 4px; }
 .audio-dropdown { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 16px; flex-shrink: 0; background: #191919; border-radius: 12px; }
 .audio-dropdown label { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .audio-dropdown select { width: 100%; padding: 6px; background: #292929; border: 1px solid #555; border-radius: 5px; }
@@ -760,37 +854,42 @@ html, body, #root { background: transparent; height: 100%; overflow: hidden; }
 .settings-back { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 
-.capture-status { display:flex; align-items:center; gap:8px; min-width:0; overflow:hidden; color:var(--muted); }
-.capture-status-copy { min-width:0; width:140px; line-height:1.3; }
-.capture-source-window { height:17px; overflow:hidden; }
+.capture-status { display:flex; width:100%; align-items:center; gap:8px; min-width:0; overflow:hidden; color:var(--muted); }
+.capture-status-copy { flex:0 1 90%; min-width:0; width:90%; max-width:90%; overflow:hidden; line-height:1.3; }
+.capture-source-window { position:relative; width:100%; max-width:100%; height:17px; overflow:hidden; }
 .capture-source-name { display:block; width:max-content; white-space:nowrap; color:var(--bright); font-size:12px; font-weight:500; }
-@property --source-left-opacity { syntax:"<number>"; inherits:false; initial-value:1; }
-@property --source-right-opacity { syntax:"<number>"; inherits:false; initial-value:0; }
-/* Smoothstep opacity stops soften both ends of the spatial fade. */
-.capture-source-window.overflowing {
-  --source-edge-mask: linear-gradient(to right,
-    rgb(0 0 0 / var(--source-left-opacity)) 0,
-    rgb(0 0 0 / calc(.074 + var(--source-left-opacity) * .926)) 7px,
-    rgb(0 0 0 / calc(.259 + var(--source-left-opacity) * .741)) 14px,
-    rgb(0 0 0 / calc(.5 + var(--source-left-opacity) * .5)) 21px,
-    rgb(0 0 0 / calc(.741 + var(--source-left-opacity) * .259)) 28px,
-    rgb(0 0 0 / calc(.926 + var(--source-left-opacity) * .074)) 35px,
-    #000 42px, #000 calc(100% - 42px),
-    rgb(0 0 0 / calc(.926 + var(--source-right-opacity) * .074)) calc(100% - 35px),
-    rgb(0 0 0 / calc(.741 + var(--source-right-opacity) * .259)) calc(100% - 28px),
-    rgb(0 0 0 / calc(.5 + var(--source-right-opacity) * .5)) calc(100% - 21px),
-    rgb(0 0 0 / calc(.259 + var(--source-right-opacity) * .741)) calc(100% - 14px),
-    rgb(0 0 0 / calc(.074 + var(--source-right-opacity) * .926)) calc(100% - 7px),
-    rgb(0 0 0 / var(--source-right-opacity)) 100%);
-  mask-image: var(--source-edge-mask);
-  -webkit-mask-image: var(--source-edge-mask);
+/* Gradient overlays are used instead of an animated mask so WebView2 and
+   WebKit render the same edge fade. */
+.capture-source-window.overflowing::before,
+.capture-source-window.overflowing::after {
+  content:"";
+  position:absolute;
+  z-index:1;
+  top:0;
+  bottom:0;
+  width:42px;
+  pointer-events:none;
 }
-.capture-source-window.scrolling { animation:capture-source-fades var(--source-duration, 9s) cubic-bezier(.37, 0, .63, 1) infinite; }
+.capture-source-window.overflowing::before {
+  left:0;
+  opacity:0;
+  background:linear-gradient(to right, var(--card) 0, rgb(25 25 25 / .926) 7px, rgb(25 25 25 / .741) 14px, rgb(25 25 25 / .5) 21px, rgb(25 25 25 / .259) 28px, rgb(25 25 25 / .074) 35px, transparent 42px);
+}
+.capture-source-window.overflowing::after {
+  right:0;
+  opacity:1;
+  background:linear-gradient(to left, var(--card) 0, rgb(25 25 25 / .926) 7px, rgb(25 25 25 / .741) 14px, rgb(25 25 25 / .5) 21px, rgb(25 25 25 / .259) 28px, rgb(25 25 25 / .074) 35px, transparent 42px);
+}
+.capture-source-window.scrolling::before { animation:source-left-fade var(--source-duration, 9s) cubic-bezier(.37, 0, .63, 1) infinite; }
+.capture-source-window.scrolling::after { animation:source-right-fade var(--source-duration, 9s) cubic-bezier(.37, 0, .63, 1) infinite; }
 /* Match the text's endpoint pauses, keeping both edges faded during travel. */
-@keyframes capture-source-fades {
-  0%, 90%, 100% { --source-left-opacity:1; --source-right-opacity:0; }
-  15%, 25%, 65%, 75% { --source-left-opacity:0; --source-right-opacity:0; }
-  40%, 50% { --source-left-opacity:0; --source-right-opacity:1; }
+@keyframes source-left-fade {
+  0%, 90%, 100% { opacity:0; }
+  15%, 25%, 40%, 50%, 65%, 75% { opacity:1; }
+}
+@keyframes source-right-fade {
+  0%, 15%, 25%, 65%, 75%, 90%, 100% { opacity:1; }
+  40%, 50% { opacity:0; }
 }
 .scrolling .capture-source-name { animation:capture-source-cycle var(--source-duration, 9s) cubic-bezier(.37, 0, .63, 1) infinite; }
 @keyframes capture-source-cycle {
@@ -800,7 +899,8 @@ html, body, #root { background: transparent; height: 100%; overflow: hidden; }
 }
 @media (prefers-reduced-motion: reduce) {
   .scrolling .capture-source-name { animation:none; }
-  .capture-source-window.scrolling { animation:none; }
+  .capture-source-window.scrolling::before,
+  .capture-source-window.scrolling::after { animation:none; }
 }
 
 /* Keep controls above the toolbar inside the main window. */
@@ -849,6 +949,12 @@ html, body, #root { background: transparent; height: 100%; overflow: hidden; }
 .account-profile > svg { width:20px; height:20px; color:var(--muted); }
 .account-section > .button.account-delete { margin:0; justify-self:start; padding:8px 0; gap:12px; }
 .account-section .subscription-settings { gap:12px; padding:16px 0; border-bottom:1px solid var(--line); }
+.provider-key-settings { display:grid; gap:10px; padding:0 0 16px; border-bottom:1px solid var(--line); }
+.provider-key-settings h2 { margin:0; font-size:14px; }
+.provider-key-settings label { display:grid; gap:6px; font-size:12px; }
+.provider-key-settings select,
+.provider-key-settings input { width:100%; min-width:0; box-sizing:border-box; border:1px solid var(--line); border-radius:7px; background:#202020; color:var(--text); padding:8px 10px; font:inherit; }
+.provider-key-settings > .button { justify-self:start; margin:0; }
 .subscription-heading { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
 .subscription-heading > svg { width:20px; height:20px; }
 .subscription-badge { margin-left:auto; padding:4px 8px; border-radius:6px; background:#292929; color:var(--muted); font-size:12px; }

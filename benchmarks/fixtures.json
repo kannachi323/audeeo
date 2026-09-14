@@ -1,0 +1,12 @@
+[
+ {"id":"zh-names","sourceLanguage":"zh","targetLanguage":"en","sourceText":"张伟说，Audeeo 的测试会议改到周五下午三点。","checks":["Zhang Wei","Audeeo","Friday","3 p.m."]},
+ {"id":"en-names","sourceLanguage":"en","targetLanguage":"zh","sourceText":"Dr. Chen will meet Mei Lin in San Jose, not San Francisco.","checks":["Chen","Mei Lin","San Jose","negation"]},
+ {"id":"zh-numbers","sourceLanguage":"zh","targetLanguage":"en","sourceText":"不是一万五千，是一千五百零六元五角。航班是 CA1832。","checks":["not 15000","1506.50","CA1832"]},
+ {"id":"en-numbers","sourceLanguage":"en","targetLanguage":"zh","sourceText":"The total is $1,506.50, not $15,000. Flight CA1832 leaves at 6:15.","checks":["1506.50","not 15000","CA1832","6:15"]},
+ {"id":"zh-negation","sourceLanguage":"zh","targetLanguage":"en","sourceText":"我不是说他没来，我是说他还没走。","checks":["not saying he did not come","has not left yet"]},
+ {"id":"en-negation","sourceLanguage":"en","targetLanguage":"zh","sourceText":"I didn't say she approved it. She hasn't rejected it either.","checks":["did not say approved","has not rejected"]},
+ {"id":"zh-pause","sourceLanguage":"zh","targetLanguage":"en","sourceText":"如果明天不下雨，我们就去；否则，改到下周。","checks":["if no rain","otherwise next week"]},
+ {"id":"en-pause","sourceLanguage":"en","targetLanguage":"zh","sourceText":"We can ship on Tuesday—unless the test fails. Then wait until Friday.","checks":["Tuesday","unless fails","Friday"]},
+ {"id":"zh-switch","sourceLanguage":"zh","targetLanguage":"en","sourceText":"请把 deadline 改到下周一，预算不要超过 two thousand dollars。","checks":["next Monday","no more than 2000"]},
+ {"id":"en-switch","sourceLanguage":"en","targetLanguage":"zh","sourceText":"The client said 没问题, but please don't confirm the order yet.","checks":["no problem","do not confirm yet"]}
+]

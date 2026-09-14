@@ -605,7 +605,7 @@ export default function App() {
         {!expanded && <LiveCaptions source={captionMode === 'subtitles' || showSource ? segments.map(s => s.sourceText).join(' ') : ''} translation={captionMode === 'translate' ? segments.map(s => s.translatedText).join('') : ''} sourceLanguage={source} targetLanguage={target} size={size}/>}
         {view === "settings" && (
           <section className="settings-menu" aria-label="Settings">
-            
+
             <Button
               aria-label="Overlay settings"
               onClick={() => openPage("overlay")}

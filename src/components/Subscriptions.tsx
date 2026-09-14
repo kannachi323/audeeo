@@ -68,7 +68,7 @@ export function Subscriptions({ session, platform, disabled, onBusy }: {
         {plan.id === "yearly" ? "Yearly" : "Monthly"} · {plan.price} / {plan.id === "yearly" ? "year" : "month"}
       </Button>)}
       {(!isTauri() || platform === "ios") && <Button disabled={disabled || busy || !info} onClick={() => void run("paywall")}>View subscription options</Button>}
-      
+
     </>}
     <Button disabled={disabled || busy} onClick={() => void run("restore")} className="subscription-action"><RotateCcw aria-hidden="true"/>{isTauri() ? "Restore purchases" : "Refresh purchases"}</Button>
     {platform === "ios" && <Button disabled={disabled || busy} onClick={() => void run("manage")} className="subscription-action"><Settings2 aria-hidden="true"/>Manage subscription</Button>}

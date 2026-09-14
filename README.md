@@ -1,238 +1,53 @@
-# audeeo
+# Audeeo
 
-Offline speech-to-text live subtitle generator. Real-time speech recognition and translation with a sleek GUI overlay for Windows.
+Desktop-first live captions and Mandarin ↔ English translation, built with Tauri, React, native Apple audio/presentation, a Cloudflare relay, and Supabase. The Apple release is in development; see [release gates](docs/release.md).
 
-![Project Screenshot](https://github.com/user-attachments/assets/970434ec-83ca-4e15-a525-e11d7e52894b)
+The current implementation provides one caption/settings window, native microphone capture, macOS Core Audio source routing with independent source/translation audio controls, a streaming relay with separate OpenAI and Soniox backends, and owner-scoped text history/usage enforcement. System audio mixing requires macOS 14.2+. Automatic language switching and iOS other-app audio capture remain unavailable. See [streaming behavior and verified limits](docs/openai-captions.md).
 
-## Features
+## Local development
 
-- **Offline Processing**: No internet required for speech recognition and translation
-- **Real-Time Subtitles**: Live subtitle overlay for system audio or microphone input
-- **Multi-Language Support**: Chinese (Mandarin) to English translation out of the box
-- **Minimal Resource Usage**: Lightweight C++ implementation with optimized audio processing
-- **Customizable Overlay**: Configurable hotkeys and UI positioning
-- **Low-Latency**: Engineered for minimal delay between speech and subtitle display
-
-## Technical Stack
-
-- **Speech Recognition**: [Vosk](https://alphacephei.com/vosk/) for offline speech-to-text
-- **Machine Translation**: [CTranslate2](https://github.com/OpenNMT/CTranslate2) with [OpusMT](https://github.com/Helsinki-NLP/Opus-MT) models
-- **Audio Processing**: PortAudio, libsamplerate, libfvad
-- **Graphics**: OpenGL with ImGui for UI, GLFW for window management
-- **Text Rendering**: FreeType
-- **Build System**: CMake 3.10+
-- **Language**: C++17
-
-## Prerequisites
-
-### System Requirements
-- Windows 10 or later (64-bit)
-- ~1GB disk space for models
-- Audio input device (microphone or system audio routing)
-
-### Build Requirements
-- CMake 3.10 or higher
-- C++17 compatible compiler (MSVC recommended)
-- DEV_ROOT environment variable pointing to external dependencies directory
-
-### Dependencies
-The project requires pre-built libraries for:
-- GLFW 3.4
-- FreeType 2.14.1
-- Vosk speech recognition
-- PortAudio
-- libsamplerate
-- CTranslate2
-- SentencePiece
-- libfvad
-
-These should be placed in the directory structure specified by your `DEV_ROOT` environment variable.
-
-## Installation & Building
-
-### 1. Clone the Repository
-```bash
-git clone https://github.com/yourusername/audeeo.git
-cd audeeo
+```sh
+npm ci
+npm --prefix services/session-relay ci
+cp .env.example .env
+npm run dev
+# Or: npm run desktop
+# In another terminal: npm --prefix services/session-relay run dev
 ```
 
-### 2. Download Models
-The application requires pretrained models. Models are included in the `models/` directory:
+Configure the root `.env` for both app and local relay. Only the explicit public allowlist in `vite.config.ts` enters the frontend bundle; server secrets stay in the relay. Use `SUPABASE_PUBLISHABLE_KEY=sb_publishable_...` for the app and `SUPABASE_SECRET_KEY=sb_secret_...` for the relay. Secret keys are sent only in the `apikey` header; user authorization uses the signed-in user’s access token. Legacy `anon` and `service_role` API keys are not configured by this integration. Restart development processes after changing configuration. Production relay secrets must be configured in Cloudflare separately. Apply all Supabase migrations with `supabase db push` and configure an explicit test allowance before a live caption session. Never bundle provider keys. Authentication uses Google and Apple only; email/password is disabled. See [Supabase setup](docs/supabase.md) for provider credentials, redirects, RLS, and verification. The app development/build commands do not deploy services.
 
-- **Vosk Models** (Chinese and English):
-  - `models/vosk-model-cn-0.22/` - Chinese speech recognition
-  - `models/vosk-model-en-us-0.22/` - English speech recognition
-
-- **Translation Models**:
-  - `models/opus-mt-zh-en/` - Chinese to English translation
-
-If models are missing, they can be downloaded from:
-- [Vosk Models](https://alphacephei.com/vosk/models)
-- [OpusMT Models](https://huggingface.co/Helsinki-NLP/opus-mt-zh-en)
-
-### 3. Setup Dependencies
-Configure the `DEV_ROOT` environment variable to point to your dependencies directory containing all required libraries.
-
-### 4. Build with CMake
-```bash
-mkdir build
-cd build
-cmake ..
-cmake --build . --config Release
+```sh
+npm run check
+npm run test:database # local PostgreSQL tools; creates and removes an isolated cluster
+cargo build --manifest-path src-tauri/Cargo.toml
+cargo check --manifest-path src-tauri/Cargo.toml --target aarch64-apple-ios
+swift build --package-path native/apple --product AudeeoNative
 ```
 
-The compiled executable will be in `build/audeeo.exe`.
+Space starts/stops when focus is outside a control; Escape collapses expanded controls. Native permission prompts remain user-controlled.
 
-### 5. Configure
-Edit `config/audeeo.conf` to customize hotkeys and settings:
-```properties
-EXIT=CTRL,Q
-TOGGLE_OVERLAY=CTRL,X
-```
+See [architecture](docs/architecture.md), [providers and benchmarks](docs/models.md), [verification](docs/verification.md), and [milestones](docs/milestones.md). No latency, quality advantage, physical-device result, or store acceptance is claimed without evidence.
 
-## Usage
+## Current window controls
 
-### Running the Application
-```bash
-./build/audeeo
-```
+Sign in with Apple or Google, then use the Audio & languages icon in the floating panel for source, mode, languages, and independent volume/mute controls. Settings contains appearance, text-history preferences, history, and account controls. Settings and captions animate within the same window; Back or Escape returns to captions without stopping audio.
 
-The application will:
-1. Load speech recognition and translation models
-2. Create a minimal overlay window
-3. Listen for speech input
-4. Display real-time subtitles in the overlay
+The window behaves normally while idle. An active listening session or pending audio playback automatically raises it above ordinary windows; opening Settings keeps that level until the session finishes and playback drains. Overlay captions can have a clear background and controls that appear on hover or keyboard focus. The drag grip and ⌘⌥ arrow keys move the window. Reduce Motion and Reduce Transparency are respected.
 
-### Keyboard Controls
-- **CTRL+Q**: Exit application
-- **CTRL+X**: Toggle overlay visibility
+Live use requires configured `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` and `RELAY_URL`, plus server-side provider configuration. Public configuration uses the explicit allowlist in `vite.config.ts`; provider secrets stay server-side. Native and browser appearance fixtures are labelled test-only previews, not recorded/live sessions.
 
-### Input Sources
-- **Microphone**: Direct microphone input for personal use
-- **System Audio**: Route system audio through input device (requires audio loopback setup)
+## Subscriptions
 
-## Project Structure
+See [RevenueCat web and iOS setup](docs/revenuecat.md) for product mapping, public keys, paywalls, Customer Center, server reconciliation, and iOS build/testing instructions.
 
-```
-audeeo/
-├── src/
-│   ├── main.cpp           # Application entry point
-│   ├── core/              # Core processing modules
-│   │   ├── speech_translator.cpp
-│   │   ├── audio_processor.cpp
-│   │   ├── text_translator.cpp
-│   │   └── ...
-│   ├── gui/               # GUI and rendering
-│   │   ├── draw_ui.cpp
-│   │   ├── win32_window.cpp
-│   │   ├── text_renderer.cpp
-│   │   └── ...
-│   └── utils/             # Utility functions
-│       └── image_loader.cpp
-├── include/audeeo/        # Header files
-├── cmake/                 # CMake configuration modules
-├── models/                # Pretrained models directory
-├── config/                # Configuration files
-├── assets/                # UI assets and fonts
-├── libs/                  # Prebuilt library files
-└── translator/            # Python model download utilities
-```
+Caption modes use one provider session at a time. Soniox is available separately through its official Node SDK; see [Soniox setup, provider switching, and live tests](docs/soniox-captions.md). OpenAI remains the default when `CAPTION_PROVIDER` is unset. Set server-only `OPENAI_API_KEY` in `.env` and in the deployed Worker. Translation displays target text and plays the model’s generated audio; it remains billed by audio duration. See [OpenAI captions](docs/openai-captions.md).
 
-## Architecture
 
-The application follows a modular architecture:
+### macOS sign-in storage
 
-- **SpeechTranslator**: Main orchestrator coordinating audio processing and translation
-- **AudioProcessor**: Handles real-time audio capture and processing
-- **AudioText**: Converts audio streams to text using Vosk
-- **TextTranslator**: Translates recognized text using CTranslate2
-- **DrawUI**: Manages ImGui rendering and overlay display
-- **Win32Window**: Handles Windows-specific window management
-
-Components communicate through thread-safe queues for real-time processing without blocking.
-
-## Configuration
-
-### Keyboard Shortcuts
-Edit `config/audeeo.conf`:
-```properties
-EXIT=CTRL,Q                    # Exit application
-TOGGLE_OVERLAY=CTRL,X          # Show/hide subtitle overlay
-```
-
-### Model Selection
-Modify `src/main.cpp` to change speech recognition or translation models:
-```cpp
-engine.init(
-    "../models/vosk-model-cn-0.22",              // Speech recognition model
-    "../models/opus-mt-zh-en",                   // Translation model
-    "../models/opus-mt-zh-en/tokenizer/source.spm",
-    "../models/opus-mt-zh-en/tokenizer/target.spm",
-    callback
-);
-```
-
-## Troubleshooting
-
-### Application Won't Start
-- Ensure all model files are present in `models/` directory
-- Verify `DEV_ROOT` environment variable is correctly set
-- Check that all DLL dependencies are accessible
-
-### No Audio Input
-- Verify audio device is working and selected in system settings
-- For system audio capture, configure audio loopback using tools like VB-Audio Virtual Cable
-- Check microphone permissions in Windows settings
-
-### High CPU Usage
-- Reduce audio sample rate by adjusting audio processing parameters
-- Ensure system has sufficient free RAM for model loading
-
-## Development
-
-### Adding Support for New Languages
-1. Download Vosk model for your language from [Vosk Models](https://alphacephei.com/vosk/models)
-2. Download OpusMT translation model from [Hugging Face](https://huggingface.co/Helsinki-NLP)
-3. Update model paths in `src/main.cpp`
-4. Rebuild the application
-
-### Contributing
-We welcome contributions! Please:
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/your-feature`)
-3. Make your changes and test thoroughly
-4. Submit a pull request with a clear description
-
-## Performance Notes
-
-- First run loads models into memory (~500MB for speech + translation)
-- Speech recognition latency: ~100-200ms
-- Translation latency: ~50-100ms
-- Total end-to-end latency: ~200-400ms depending on system resources
-
-## Known Limitations
-
-- Requires Windows 10 or later
-- Offline models limit accuracy compared to cloud-based services
-- Single language pair (Chinese to English) by default
-- Requires manual setup of dependencies
+Audeeo stores its sign-in session and OAuth verifier in `~/.audeeo/.config/auth.json` instead of Apple Keychain. The folders use mode `0700` and the plaintext file uses `0600`; writes are atomic and run on a blocking worker. Existing Keychain entries are neither read nor deleted. Sign in once after upgrading to create the new session file. Display preferences continue to use the existing app storage. iOS storage is unchanged.
 
 ## License
 
-This project is licensed under [LICENSE](LICENSE) - see the LICENSE file for details.
-
-## Support & Documentation
-
-- **Issues**: Report bugs and request features via [GitHub Issues](../../issues)
-- **Discussions**: Join community discussions via [GitHub Discussions](../../discussions)
-
-## Acknowledgments
-
-- [Vosk](https://alphacephei.com/vosk/) for offline speech recognition
-- [OpenNMT](https://opennmt.net/) for CTranslate2 translation framework
-- [ImGui](https://github.com/ocornut/imgui) for the UI framework
-- [Hugging Face](https://huggingface.co/) for model hosting
-
----
-
-**Made with ❤️ for accessible, offline speech-to-text technology**
+[MIT](LICENSE) © 2026 Matthew Chen.

@@ -1,0 +1,16 @@
+{
+  "measured": false,
+  "sessionSeconds": null,
+  "firstSourceCaptionMs": null,
+  "firstUsefulTranslationMs": null,
+  "firstSpokenOutputMs": null,
+  "recognitionBilledSeconds": null,
+  "translationInputTokens": null,
+  "translationOutputTokens": null,
+  "spokenCharacters": null,
+  "relayAndHistoryCostUSD": null,
+  "device": null,
+  "network": null,
+  "region": null,
+  "audioFixture": null
+}

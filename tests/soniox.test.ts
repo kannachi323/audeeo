@@ -76,6 +76,15 @@ it('runs the real SDK through the separate relay route without an OpenAI key', a
   expect(JSON.stringify(downstream.sent)).not.toContain('private-soniox-test-key');
   expect(vi.getTimerCount()).toBe(0);
 });
+it('uses a session-only user key without requiring a server provider key', async () => {
+  await relay.fetch(new Request('https://relay.test/v1/realtime',{headers:{Upgrade:'websocket'}}), {SUPABASE_SECRET_KEY:'fake'} as any);
+  downstream.message({type:'start',accessToken:'fake',sourceLanguage:'en',targetLanguage:'zh',provider:'soniox',providerKey:'user-soniox-key'});
+  await vi.advanceTimersByTimeAsync(0);
+  expect(upstream.url).toBe('wss://stt-rt.soniox.com/transcribe-websocket');
+  expect(upstream.sent[0]).toMatchObject({api_key:'user-soniox-key'});
+  expect(downstream.sent.at(-1).type).toBe('ready');
+  expect(JSON.stringify(downstream.sent)).not.toContain('user-soniox-key');
+});
 it('selects Soniox via the server setting and closes it on silence', async () => {
   await start('/v1/realtime', {CAPTION_PROVIDER:'soniox'});
   await vi.advanceTimersByTimeAsync(30000);

@@ -29,12 +29,13 @@ export const supabase =
 export const relayURL = config.relayUrl || "http://127.0.0.1:8787";
 export async function signIn(provider: "apple" | "google") {
   if (!supabase) throw new Error("Sign-in is not configured in this build.");
+  const redirectTo = isTauri()
+    ? await invoke<string>("oauth_redirect_url")
+    : config.authRedirectUrl || location.origin;
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider,
     options: {
-      redirectTo: isTauri()
-        ? "audeeo://auth/callback"
-        : config.authRedirectUrl || location.origin,
+      redirectTo,
       skipBrowserRedirect: isTauri(),
     },
   });

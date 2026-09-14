@@ -1,12 +1,19 @@
 mod credentials;
 #[cfg(target_os = "macos")]
 mod file_credentials;
+#[cfg(target_os = "windows")]
+mod windows_file_credentials;
+#[cfg(target_os = "windows")]
+mod windows_audio;
 use serde::Serialize;
 use tauri::Emitter;
 use tauri::Manager;
 
 #[derive(Default)]
 struct OAuthCallbacks(std::sync::Mutex<Vec<String>>);
+
+#[derive(Default)]
+struct OAuthLoopbackState(std::sync::Arc<std::sync::atomic::AtomicU64>);
 
 fn queue_oauth_callback(app: &tauri::AppHandle, url: String) {
     if let Ok(mut pending) = app.state::<OAuthCallbacks>().0.lock() {
@@ -16,6 +23,142 @@ fn queue_oauth_callback(app: &tauri::AppHandle, url: String) {
         }
     }
     let _ = app.emit("oauth-callback", ());
+}
+
+fn handle_oauth_callback(app: &tauri::AppHandle, url: &tauri::Url) {
+    if url.scheme() != "audeeo"
+        || url.host_str() != Some("auth")
+        || url.path() != "/callback"
+    {
+        return;
+    }
+    queue_oauth_callback(app, url.to_string());
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn oauth_loopback_callback(method: &str, target: &str) -> Option<tauri::Url> {
+    if method != "GET" {
+        return None;
+    }
+    let callback = tauri::Url::parse(&format!("http://127.0.0.1{target}")).ok()?;
+    if callback.path() != "/auth/callback"
+        || !(callback
+            .query_pairs()
+            .any(|(key, value)| key == "code" && !value.is_empty())
+            || callback.query_pairs().any(|(key, _)| key == "error"))
+    {
+        return None;
+    }
+    let mut native = tauri::Url::parse("audeeo://auth/callback").ok()?;
+    native.set_query(callback.query());
+    Some(native)
+}
+
+#[cfg(target_os = "windows")]
+fn serve_oauth_loopback(
+    listener: std::net::TcpListener,
+    app: tauri::AppHandle,
+    generation: u64,
+    current_generation: std::sync::Arc<std::sync::atomic::AtomicU64>,
+) {
+    use std::io::{BufRead, BufReader, Write};
+    use std::time::{Duration, Instant};
+
+    const COMPLETE_PAGE: &str = r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>Continue in Audeeo</title><style>body{margin:0;background:#111;color:#f5f5f5;font:16px system-ui,sans-serif;display:grid;min-height:100vh;place-items:center}.card{max-width:32rem;padding:3rem;text-align:center}h1{font-size:2rem;margin:.25rem 0 1rem}p{color:#bbb;line-height:1.6}</style></head><body><main class="card"><h1>Browser sign-in complete</h1><p>You can close this tab and return to Audeeo to continue.</p></main></body></html>"#;
+    const INVALID_PAGE: &str = "Invalid Audeeo sign-in callback.";
+
+    let _ = listener.set_nonblocking(true);
+    let deadline = Instant::now() + Duration::from_secs(300);
+    while Instant::now() < deadline
+        && current_generation.load(std::sync::atomic::Ordering::Acquire) == generation
+    {
+        let (mut stream, _) = match listener.accept() {
+            Ok(connection) => connection,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(Duration::from_millis(25));
+                continue;
+            }
+            Err(_) => return,
+        };
+        let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+        let mut request_line = String::new();
+        if BufReader::new(&stream).read_line(&mut request_line).is_err() {
+            continue;
+        }
+        let mut request = request_line.split_whitespace();
+        let method = request.next().unwrap_or("");
+        let target = request.next().unwrap_or("");
+        let callback = oauth_loopback_callback(method, target);
+        let (status, body) = if callback.is_some() {
+            ("200 OK", COMPLETE_PAGE)
+        } else {
+            ("400 Bad Request", INVALID_PAGE)
+        };
+        let response = format!(
+            "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        let _ = stream.write_all(response.as_bytes());
+        let _ = stream.flush();
+        if let Some(callback) = callback {
+            handle_oauth_callback(&app, &callback);
+            return;
+        }
+    }
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod oauth_loopback_tests {
+    use super::oauth_loopback_callback;
+
+    #[test]
+    fn accepts_pkce_codes_and_provider_errors_only_on_the_callback_path() {
+        assert_eq!(
+            oauth_loopback_callback("GET", "/auth/callback?code=test-code")
+                .unwrap()
+                .as_str(),
+            "audeeo://auth/callback?code=test-code"
+        );
+        assert!(oauth_loopback_callback("GET", "/auth/callback?error=access_denied").is_some());
+        assert!(oauth_loopback_callback("POST", "/auth/callback?code=test-code").is_none());
+        assert!(oauth_loopback_callback("GET", "/other?code=test-code").is_none());
+        assert!(oauth_loopback_callback("GET", "/auth/callback").is_none());
+    }
+}
+
+#[tauri::command]
+fn oauth_redirect_url(
+    app: tauri::AppHandle,
+    state: tauri::State<OAuthLoopbackState>,
+) -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .map_err(|_| "Couldn’t prepare the browser sign-in callback. Please try again.")?;
+        let port = listener
+            .local_addr()
+            .map_err(|_| "Couldn’t prepare the browser sign-in callback. Please try again.")?
+            .port();
+        let generation = state
+            .0
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
+            + 1;
+        let current_generation = state.0.clone();
+        std::thread::spawn(move || {
+            serve_oauth_loopback(listener, app, generation, current_generation)
+        });
+        return Ok(format!("http://127.0.0.1:{port}/auth/callback"));
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (app, state);
+        Ok("audeeo://auth/callback".into())
+    }
 }
 
 #[tauri::command]
@@ -40,9 +183,9 @@ struct PlatformCapabilities {
 fn platform_capabilities() -> PlatformCapabilities {
     PlatformCapabilities {
         platform: std::env::consts::OS,
-        microphone: cfg!(any(target_os = "macos", target_os = "ios")),
+        microphone: cfg!(any(target_os = "macos", target_os = "ios", target_os = "windows")),
         local_video: false,
-        system_audio: cfg!(target_os = "macos"),
+        system_audio: cfg!(any(target_os = "macos", target_os = "windows")),
         global_overlay: cfg!(target_os = "macos"),
         native_pip: cfg!(target_os = "ios"),
         native_session: cfg!(target_os = "ios"),
@@ -79,7 +222,9 @@ fn read_capture_sources() -> Result<serde_json::Value, String> {
         unsafe { audeeo_secret_free(pointer); }
         return serde_json::from_str(&json).map_err(|error| error.to_string());
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    return windows_audio::capture_sources();
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     Ok(serde_json::json!({"microphone":"Microphone", "applications":[]}))
 }
 #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -211,6 +356,8 @@ fn credential_error(status: i32) -> String {
 fn read_credential(key: &str) -> Result<Option<String>, String> {
     #[cfg(target_os = "macos")]
     { return file_credentials::get(key); }
+    #[cfg(target_os = "windows")]
+    { return windows_file_credentials::get(key); }
     #[cfg(target_os = "ios")]
     {
         let key = std::ffi::CString::new(key).map_err(|e| e.to_string())?;
@@ -227,7 +374,7 @@ fn read_credential(key: &str) -> Result<Option<String>, String> {
         }
         return Ok(Some(value));
     }
-    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
     {
         let _ = key;
         Err("Secure storage unavailable".into())
@@ -243,6 +390,8 @@ async fn auth_storage_set(key: String, value: Option<String>) -> Result<(), Stri
 fn write_credential(key: &str, value: Option<String>) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     { return file_credentials::set(key, value); }
+    #[cfg(target_os = "windows")]
+    { return windows_file_credentials::set(key, value); }
     #[cfg(target_os = "ios")]
     {
         let key = std::ffi::CString::new(key).map_err(|e| e.to_string())?;
@@ -261,7 +410,7 @@ fn write_credential(key: &str, value: Option<String>) -> Result<(), String> {
         }
         return Ok(());
     }
-    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
     {
         let _ = (key, value);
         Err("Secure storage unavailable".into())
@@ -302,7 +451,7 @@ fn purchase_action(action: String, owner: String, key: String) -> Result<(), Str
     }
 }
 #[tauri::command]
-fn begin_oauth(url: String) -> Result<(), String> {
+fn begin_oauth(app: tauri::AppHandle, url: String) -> Result<(), String> {
     let parsed = tauri::Url::parse(&url).map_err(|_| "Invalid sign-in URL")?;
     if parsed.scheme() != "https"
         || parsed.host_str() != Some("etbpmzwqqihnydlmibvd.supabase.co")
@@ -314,14 +463,23 @@ fn begin_oauth(url: String) -> Result<(), String> {
     }
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
+        let _ = app;
         let url = std::ffi::CString::new(url).map_err(|e| e.to_string())?;
         unsafe {
             audeeo_begin_oauth(url.as_ptr(), oauth_callback);
         }
         return Ok(());
     }
-    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    #[cfg(target_os = "windows")]
     {
+        use tauri_plugin_opener::OpenerExt;
+        app.opener()
+            .open_url(url, None::<&str>)
+            .map_err(|_| "Couldn’t open the default browser. Check Windows default-app settings and try again.".into())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
+    {
+        let _ = (app, url);
         Err("Native sign-in is unavailable on this platform.".into())
     }
 }
@@ -533,7 +691,10 @@ fn update_overlay(
 }
 
 #[derive(Default)]
-pub struct AudioCaptureState;
+pub struct AudioCaptureState {
+    #[cfg(target_os = "windows")]
+    windows: std::sync::Mutex<Option<windows_audio::WindowsAudioCapture>>,
+}
 
 #[cfg(target_os = "macos")]
 #[derive(Clone, Serialize)]
@@ -554,7 +715,15 @@ async fn start_system_audio_capture(
         Ok(())
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        let mut capture = state.windows.lock().map_err(|_| "Audio capture state is unavailable")?;
+        if capture.is_some() { return Err("Device audio capture is already running".into()); }
+        *capture = Some(windows_audio::WindowsAudioCapture::start(app)?);
+        Ok(())
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let _ = (app, state);
         Err("Native system audio capture is currently supported on macOS.".to_string())
@@ -572,7 +741,15 @@ async fn stop_system_audio_capture(
         Ok(())
     }
 
-    #[cfg(not(target_os = "macos"))]
+
+    #[cfg(target_os = "windows")]
+    {
+        let capture = state.windows.lock().map_err(|_| "Audio capture state is unavailable")?.take();
+        if let Some(capture) = capture { capture.stop()?; }
+        Ok(())
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let _ = state;
         Ok(())
@@ -666,8 +843,25 @@ fn set_always_on_top(window: tauri::Window, always_on_top: bool) -> Result<(), S
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    #[cfg(target_os = "windows")]
+    {
+        // Windows launches protocol callbacks as a second process. Single-instance
+        // forwards that URL to the already-running app through the deep-link plugin.
+        builder = builder
+            .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }))
+            .plugin(tauri_plugin_deep_link::init())
+            .plugin(tauri_plugin_opener::init());
+    }
+    builder
         .manage(OAuthCallbacks::default())
+        .manage(OAuthLoopbackState::default())
         .manage(AudioCaptureState::default())
         .setup(|_app| {
             #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -678,11 +872,33 @@ pub fn run() {
                     let _ = main_win.center();
                 }
             }
+            #[cfg(target_os = "windows")]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+
+                // Installers register static schemes. Development builds need an
+                // explicit runtime registration so OAuth can return to `tauri dev`.
+                #[cfg(debug_assertions)]
+                _app.deep_link().register_all()?;
+
+                let app = _app.handle().clone();
+                _app.deep_link().on_open_url(move |event| {
+                    for url in event.urls() {
+                        handle_oauth_callback(&app, &url);
+                    }
+                });
+                if let Some(urls) = _app.deep_link().get_current()? {
+                    for url in urls {
+                        handle_oauth_callback(_app.handle(), &url);
+                    }
+                }
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             platform_capabilities,
             capture_sources,
+            oauth_redirect_url,
             begin_oauth,
             take_oauth_callbacks,
             native_history_delete,
@@ -722,12 +938,7 @@ pub fn run() {
                         && url.host_str() == Some("auth")
                         && url.path() == "/callback"
                     {
-                        queue_oauth_callback(_app, url.to_string());
-                        if let Some(window) = _app.get_webview_window("main") {
-                            let _ = window.show();
-                            #[cfg(target_os = "macos")]
-                            let _ = window.set_focus();
-                        }
+                        handle_oauth_callback(_app, url);
                     }
                 }
             }

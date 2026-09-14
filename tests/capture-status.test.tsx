@@ -3,8 +3,13 @@ import {afterEach,expect,it,vi} from 'vitest';
 import {act,cleanup,render,screen} from '@testing-library/react';
 const metadata=vi.hoisted(()=>({invoke:vi.fn()}));
 vi.mock('@tauri-apps/api/core',()=>({invoke:metadata.invoke}));
-import {CaptureStatus} from '../src/components/CaptureStatus';
+import {CaptureStatus,captureSourceViewportWidth} from '../src/components/CaptureStatus';
 afterEach(()=>{cleanup();vi.useRealTimers();metadata.invoke.mockReset();});
+it('keeps detailed device names wider than the viewport so the fade always activates',()=>{
+  expect(captureSourceViewportWidth(300,260,true)).toBe(234);
+  expect(captureSourceViewportWidth(180,260,true)).toBe(180);
+  expect(captureSourceViewportWidth(300,260,false)).toBe(300);
+});
 it('scrolls all active applications together while describing the full capture scope',async()=>{
   vi.useFakeTimers();
   metadata.invoke.mockResolvedValue({microphone:'Studio microphone',applications:['Safari','Music']});
@@ -31,6 +36,15 @@ it('shows the microphone device and falls back cleanly when metadata is unavaila
   view.rerender(<CaptureStatus input="microphone" status="idle" playing={false} platform="macos"/>);
   await act(async()=>{});
   expect(screen.getByRole('status').getAttribute('aria-label')).toBe('Ready · Microphone');
+});
+
+it('uses native device names and overflow behavior on Windows',async()=>{
+  metadata.invoke.mockResolvedValue({microphone:'Microphone Array (High Definition Audio Device)',applications:['Speakers (High Definition Audio Device)']});
+  render(<CaptureStatus input="microphone" status="idle" playing={false} platform="windows"/>);
+  await act(async()=>{});
+  expect(metadata.invoke).toHaveBeenCalledWith('capture_sources');
+  expect(screen.getByText('Microphone Array (High Definition Audio Device)')).toBeTruthy();
+  expect(screen.getByRole('status').getAttribute('aria-label')).toContain('Microphone Array');
 });
 
 it('does not overlap slow metadata requests or restart polling after leaving captions',async()=>{

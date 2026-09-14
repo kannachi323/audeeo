@@ -20,6 +20,7 @@ import {
   X,
   UserRound,
   LogOut,
+  GripHorizontal,
 } from "lucide-react";
 import { Button } from "./components/Button";
 import { silenceSettings } from "../shared/silence";
@@ -37,6 +38,7 @@ import {
   RealtimeTranslationClient,
   NativeRelayClient,
   type CaptionConnection,
+  type ProviderCredentials,
   type RelayEvent,
 } from "./lib/realtime";
 import {
@@ -130,6 +132,8 @@ export default function App() {
     [syncState, setSyncState] = useState("");
   const [deleteAccount, setDeleteAccount] = useState(false);
   const [billingPending, setBillingPending] = useState(false);
+  const [ownProvider, setOwnProvider] = useState<ProviderCredentials["provider"]>("openai");
+  const [ownProviderKey, setOwnProviderKey] = useState("");
   const owner = useRef<string | undefined>(undefined),
     outbox = useRef<HistoryOutbox | undefined>(undefined);
   const client = useRef<CaptionConnection | undefined>(undefined),
@@ -187,7 +191,10 @@ export default function App() {
       owner.current = next?.user.id;
       setSession(next);
       setAuthPending(false);
-      if (!next && isTauri()) { void invoke("audio_output", {command:{stop:true}}); dispatch({type:"playing",value:false}); }
+      if (!next && isTauri()) {
+        void invoke("audio_output", {command:{stop:true}}).catch(()=>undefined);
+        dispatch({type:"playing",value:false});
+      }
       outbox.current = next
         ? new HistoryOutbox(
             next.user.id,
@@ -263,7 +270,7 @@ export default function App() {
   useEffect(() => {
     if (caps.platform === "macos")
       void invoke("resize_main_window", {
-        height: expanded ? 500 : 420,
+        height: expanded ? 500 : 224,
       }).catch(() =>
         setIssue("The window couldn’t resize. You can resize it from an edge."),
       );
@@ -418,7 +425,9 @@ export default function App() {
         ? new NativeRelayClient(relayURL, event, session.user.id, save)
         : new RealtimeTranslationClient(relayURL, event);
       client.current = relay;
-      await relay.connect(token, source, target, silence);
+      const providerKey = ownProviderKey.trim();
+      if (providerKey) await relay.connect(token, source, target, silence, {provider: ownProvider, apiKey: providerKey});
+      else await relay.connect(token, source, target, silence);
       if (run !== generation.current) {
         await relay.finish();
         return;
@@ -428,7 +437,7 @@ export default function App() {
         return;
       }
       const audio =
-        caps.platform === "macos"
+        caps.platform === "macos" || input === "system"
           ? new NativeCapture(input)
           : new BrowserMicrophone();
       capture.current = audio;
@@ -562,8 +571,24 @@ export default function App() {
     }
   }
   return (
+    <>
+      {caps.platform === "windows" && (
+        <button
+          type="button"
+          className="window-drag-grip"
+          aria-label="Drag to move Audeeo"
+          title="Drag to move"
+          onPointerDown={(event) => {
+            if (event.button === 0) void getCurrentWindow().startDragging();
+          }}
+        >
+          <span className="window-drag-grip-pill" aria-hidden="true">
+            <GripHorizontal />
+          </span>
+        </button>
+      )}
     <main
-      className={`subtitle-panel ${overlay && !expanded && overlayStyle === "transparent" && !opaque ? "clear-overlay" : ""} ${autoHide ? "auto-hide" : ""} ${audioOpen && !expanded ? "popover-open" : ""}`}
+      className={`subtitle-panel ${expanded ? "expanded" : ""} ${overlay && !expanded && overlayStyle === "transparent" && !opaque ? "clear-overlay" : ""} ${autoHide ? "auto-hide" : ""} ${audioOpen && !expanded ? "popover-open" : ""}`}
     >
       <header className={`panel-header${expanded ? " settings-header" : ""}`}>
         <div className="header-leading">
@@ -716,6 +741,23 @@ export default function App() {
                   disabled={active}
                   onBusy={setBillingPending}
                 />
+                {!caps.nativeSession && <section className="provider-key-settings" aria-label="Bring your own provider key">
+                  <h2>Use your own provider key</h2>
+                  <small>Sessions started with this key do not use your Audeeo allowance. The key stays in memory only and is cleared when Audeeo closes.</small>
+                  <label>
+                    <span>Provider</span>
+                    <select value={ownProvider} disabled={active} onChange={event => setOwnProvider(event.target.value as ProviderCredentials["provider"])}>
+                      <option value="openai">OpenAI</option>
+                      <option value="soniox">Soniox</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>API key</span>
+                    <input type="password" value={ownProviderKey} disabled={active} autoComplete="off" spellCheck={false}
+                      placeholder="Leave blank to use Audeeo allowance" onChange={event => setOwnProviderKey(event.target.value)} />
+                  </label>
+                  {ownProviderKey && <Button variant="outline" disabled={active} onClick={() => setOwnProviderKey("")}>Clear key</Button>}
+                </section>}
                 <Button
                   disabled={active || billingPending}
                   className="account-delete"
@@ -813,5 +855,6 @@ export default function App() {
       )}
       {!expanded && <CaptionToolbar {...{silence,setSilence,input,setInput,active,captionMode,setCaptionMode,source,setSource,target,setTarget,sourceVolume,setSourceVolume,sourceMuted,setSourceMuted,translatedVolume,setTranslatedVolume,translatedMuted,setTranslatedMuted,status,playing}} detached={false} open={audioOpen} setOpen={setAudioOpen} systemAudio={caps.systemAudio} startDisabled={!!session && !caps.microphone && input === "microphone"} onToggle={()=>void(active ? stop() : start())}/>}
     </main>
+    </>
   );
 }

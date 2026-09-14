@@ -3,17 +3,22 @@ import {invoke} from '@tauri-apps/api/core';
 import type {SessionPhase} from '../lib/presentation';
 
 type Sources = {microphone: string; applications: string[]};
+export function captureSourceViewportWidth(available: number, natural: number, detailed: boolean) {
+  return detailed ? Math.min(available, Math.max(1, Math.floor(natural * .9))) : available;
+}
 export function CaptureStatus({input, status, playing, platform}: {
   input: 'microphone'|'system'; status: SessionPhase; playing: boolean; platform: string;
 }) {
   const [sources,setSources] = useState<Sources | null>(null);
+  const copy = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const text = useRef<HTMLSpanElement>(null);
+  const [viewportWidth,setViewportWidth] = useState<number>();
   const [distance,setDistance] = useState(0);
   const [scrolling,setScrolling] = useState(false);
   useEffect(()=>{
     setSources(null);
-    if (platform !== 'macos') return;
+    if (platform !== 'macos' && platform !== 'windows') return;
     let disposed=false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const refresh=async()=>{
@@ -33,15 +38,22 @@ export function CaptureStatus({input, status, playing, platform}: {
   const name=input === 'microphone' ? sources?.microphone || 'Microphone' : apps.join(' · ') || 'All device audio';
   useLayoutEffect(()=>{
     const measure=()=>{
-      if (viewport.current && text.current) setDistance(Math.max(0,text.current.scrollWidth-viewport.current.clientWidth));
+      if (!copy.current || !viewport.current || !text.current) return;
+      const available = copy.current.clientWidth;
+      const natural = text.current.scrollWidth;
+      // Detailed native device names deliberately reveal at most 90% of their
+      // intrinsic width, making the shared edge fade and travel discoverable.
+      const width = captureSourceViewportWidth(available,natural,!!sources);
+      setViewportWidth(width);
+      setDistance(Math.max(0,natural-width));
     };
     measure();
     if (typeof ResizeObserver === 'undefined') return;
     const observer=new ResizeObserver(measure);
-    if (viewport.current) observer.observe(viewport.current);
+    if (copy.current) observer.observe(copy.current);
     if (text.current) observer.observe(text.current);
     return ()=>observer.disconnect();
-  },[name]);
+  },[name,sources]);
   useEffect(()=>{
     setScrolling(false);
     if (distance <= 0) return;
@@ -51,8 +63,8 @@ export function CaptureStatus({input, status, playing, platform}: {
   const detail=status === 'connecting' ? 'Connecting' : status === 'stopping' ? 'Finishing captions' : status === 'live' ? (input === 'system' ? 'Capturing device audio' : 'Listening') : playing ? 'Playing translation' : 'Ready';
   const description=`${detail} · ${input === 'system' && apps.length ? apps.join(', ') : name}`;
   return <div className={`capture-status ${status}`} role="status" aria-label={description} title={description}>
-    <div className="capture-status-copy" aria-hidden="true">
-      <div ref={viewport} className={`capture-source-window${distance > 0 ? ' overflowing' : ''}${scrolling ? ' scrolling' : ''}`} style={{"--source-travel":`-${distance}px`, "--source-duration":`${Math.max(9,distance/18*2+3)}s`} as CSSProperties}><span ref={text} key={`${input}:${name}`} className="capture-source-name">{name}</span></div>
+    <div ref={copy} className="capture-status-copy" aria-hidden="true">
+      <div ref={viewport} className={`capture-source-window${distance > 0 ? ' overflowing' : ''}${scrolling ? ' scrolling' : ''}`} style={{width:viewportWidth, "--source-travel":`-${distance}px`, "--source-duration":`${Math.max(9,distance/18*2+3)}s`} as CSSProperties}><span ref={text} key={`${input}:${name}`} className="capture-source-name">{name}</span></div>
     </div>
   </div>;
 }

@@ -13,7 +13,7 @@ export function captionSuffix(text: string, fits: (text: string) => boolean) {
   return chars.slice(low).join('').trim();
 }
 
-function CaptionLine({text, lines, size, lang}: {text: string; lines: number; size: number; lang: string}) {
+function CaptionLine({text, lines, size, lang, kind}: {text: string; lines: number; size: number; lang: string; kind: 'source' | 'translation'}) {
   const ref = useRef<HTMLParagraphElement>(null);
   const [visible, setVisible] = useState('');
   useLayoutEffect(() => {
@@ -42,12 +42,12 @@ function CaptionLine({text, lines, size, lang}: {text: string; lines: number; si
     }); observer.observe(element);
     return () => { disposed = true; cancelAnimationFrame(frame); observer.disconnect(); };
   }, [text, lines, size]);
-  return <p ref={ref} lang={lang === "auto" ? undefined : lang} dir="auto" className="caption-line" style={{fontSize:size, lineHeight:'1.35', height:`${lines*1.35}em`}}>{visible}</p>;
+  return <p ref={ref} lang={lang === "auto" ? undefined : lang} dir="auto" className={`caption-line ${kind === 'source' ? 'source-caption' : 'translated-caption'}`} style={{fontSize:size, lineHeight:'1.35', height:`${lines*1.35}em`}}>{visible}</p>;
 }
 export function LiveCaptions({source, translation, sourceLanguage, targetLanguage, size}: {source: string; translation: string; sourceLanguage: string; targetLanguage: string; size: number}) {
   const both = !!source && !!translation;
   return <section className="captions" aria-label="Live captions" aria-live="polite">
-    {source && <CaptionLine text={source} lines={both?1:2} size={both?size*.8:size} lang={sourceLanguage}/>}
-    {translation && <CaptionLine text={translation} lines={both?1:2} size={size} lang={targetLanguage}/>}
+    {source && <CaptionLine kind="source" text={source} lines={both?1:2} size={both?size*.8:size} lang={sourceLanguage}/>}
+    {translation && <CaptionLine kind="translation" text={translation} lines={both?1:2} size={size} lang={targetLanguage}/>}
   </section>;
 }

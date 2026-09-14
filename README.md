@@ -44,9 +44,9 @@ See [RevenueCat web and iOS setup](docs/revenuecat.md) for product mapping, publ
 Caption modes use one provider session at a time. Soniox is available separately through its official Node SDK; see [Soniox setup, provider switching, and live tests](docs/soniox-captions.md). OpenAI remains the default when `CAPTION_PROVIDER` is unset. Set server-only `OPENAI_API_KEY` in `.env` and in the deployed Worker. Translation displays target text and plays the model’s generated audio; it remains billed by audio duration. See [OpenAI captions](docs/openai-captions.md).
 
 
-### macOS sign-in storage
+### Desktop sign-in storage
 
-Audeeo stores its sign-in session and OAuth verifier in `~/.audeeo/.config/auth.json` instead of Apple Keychain. The folders use mode `0700` and the plaintext file uses `0600`; writes are atomic and run on a blocking worker. Existing Keychain entries are neither read nor deleted. Sign in once after upgrading to create the new session file. Display preferences continue to use the existing app storage. iOS storage is unchanged.
+On macOS and Windows, Audeeo stores its sign-in session and OAuth verifier in `~/.audeeo/.config/auth.json`. Writes are atomic and run on a blocking worker. On macOS, the folders use mode `0700` and the plaintext file uses `0600`. Windows inherits access control from the user's profile. Existing Apple Keychain entries are neither read nor deleted. Sign in once after upgrading to create the new session file. Display preferences continue to use the existing app storage. iOS storage is unchanged.
 
 ## License
 

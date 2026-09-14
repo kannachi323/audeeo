@@ -15,7 +15,7 @@ major_version = 17
 [auth]
 enabled = true
 site_url = "http://localhost:1420"
-additional_redirect_urls = ["http://localhost:1420", "http://127.0.0.1:1420", "audeeo://auth/callback"]
+additional_redirect_urls = ["http://localhost:1420", "http://127.0.0.1:1420", "http://127.0.0.1:*/auth/callback", "audeeo://auth/callback"]
 enable_signup = true
 enable_anonymous_sign_ins = false
 minimum_password_length = 8

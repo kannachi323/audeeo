@@ -8,6 +8,10 @@ export type RelayEvent =
   | { type: "segment"; segment: Segment }
   | { type: "error"; message: string }
   | { type: "finished"; reason: string };
+export type ProviderCredentials = {
+  provider: "openai" | "soniox";
+  apiKey: string;
+};
 export class RealtimeTranslationClient {
   private socket?: WebSocket;
   private finished?: Promise<void>;
@@ -23,6 +27,7 @@ export class RealtimeTranslationClient {
     sourceLanguage: Language,
     targetLanguage: Language,
     silence: SilenceSettings = defaultSilence,
+    credentials?: ProviderCredentials,
   ) {
     const url = new URL("/v1/realtime", this.endpoint);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
@@ -47,6 +52,7 @@ export class RealtimeTranslationClient {
             sourceLanguage,
             targetLanguage,
             silence,
+            ...(credentials?.apiKey ? { provider: credentials.provider, providerKey: credentials.apiKey } : {}),
           }),
         ),
       );
@@ -126,7 +132,7 @@ export class RealtimeTranslationClient {
 }
 
 export interface CaptionConnection {
-  connect(token: string, source: Language, target: Language, silence?: SilenceSettings): Promise<void>;
+  connect(token: string, source: Language, target: Language, silence?: SilenceSettings, credentials?: ProviderCredentials): Promise<void>;
   sendAudio(pcm: Int16Array): void;
   finish(): Promise<void>;
 }
@@ -139,7 +145,7 @@ export class NativeRelayClient implements CaptionConnection {
     private owner: string,
     private save: boolean,
   ) {}
-  async connect(token: string, source: Language, target: Language, silence: SilenceSettings = defaultSilence) {
+  async connect(token: string, source: Language, target: Language, silence: SilenceSettings = defaultSilence, _credentials?: ProviderCredentials) {
     await new Promise<void>(async (resolve, reject) => {
       const timer = setTimeout(() => {
         reject(new Error("Native session timed out. Retry."));

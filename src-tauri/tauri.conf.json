@@ -15,9 +15,9 @@
         "label": "main",
         "title": "Audeeo",
         "width": 400,
-        "height": 420,
+        "height": 224,
         "minWidth": 360,
-        "minHeight": 420,
+        "minHeight": 224,
         "resizable": true,
         "decorations": false,
         "transparent": true,
@@ -30,6 +30,13 @@
       "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https: wss: http://127.0.0.1:8787 ws://127.0.0.1:8787; img-src 'self' asset: http://asset.localhost blob: data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self'"
     },
     "macOSPrivateApi": true
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["audeeo"]
+      }
+    }
   },
   "bundle": {
     "active": true,

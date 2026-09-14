@@ -1,12 +1,26 @@
 # Audeeo website
 
 Separate Vite/React website. For Vercel, set the project root to `website`.
-No backend or environment variables are required for the prepared demos.
+The landing page uses a static product preview and works without backend
+configuration. Website account access uses the same Supabase and RevenueCat
+projects as the desktop app.
 
-The interactive players synchronize bundled audio and text. They do not invoke
-live recognition or translation and are not benchmarks of the current app.
-The application itself uses cloud recognition; playback of this website's
-prepared media does not upload audio.
+## Account configuration
+
+Set these public build variables in Vercel or a local `website/.env` file:
+
+```sh
+SUPABASE_URL=
+SUPABASE_PUBLISHABLE_KEY=
+REVENUECAT_WEB_KEY=
+```
+
+Only these explicitly allowlisted values enter the website bundle. Add every
+deployed website origin and local development origin to the Supabase Auth
+redirect allow list. Google and Apple must already be enabled in Supabase;
+Apple web OAuth also requires its Services ID to be the first configured client
+ID. Never add a Supabase secret/service-role key or RevenueCat secret key to the
+website environment.
 
 ## Development
 

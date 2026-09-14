@@ -122,10 +122,10 @@ export default {
         return respond({ error: "Not found" }, 404);
       if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket")
         return respond({ error: "WebSocket required" }, 426);
-      const provider = url.pathname === '/v1/realtime/soniox' ? 'soniox'
+      const routeProvider = url.pathname === '/v1/realtime/soniox' ? 'soniox'
         : url.pathname === '/v1/realtime/openai' ? 'openai' : (env.CAPTION_PROVIDER || 'openai');
-      if (!['openai', 'soniox'].includes(provider)) return respond({ error: 'Unknown caption provider' }, 503);
-      if (!(provider === 'soniox' ? env.SONIOX_API_KEY : env.OPENAI_API_KEY) || !env.SUPABASE_SECRET_KEY)
+      if (!['openai', 'soniox'].includes(routeProvider)) return respond({ error: 'Unknown caption provider' }, 503);
+      if (!env.SUPABASE_SECRET_KEY)
         return respond({ error: "Service is not configured" }, 503);
       const pair = new WebSocketPair();
       const [client, socket] = Object.values(pair);
@@ -205,6 +205,8 @@ export default {
               sourceLanguage: Language;
               targetLanguage: Language;
               silence?: unknown;
+              provider?: "openai" | "soniox";
+              providerKey?: string;
             };
             if (
               config.type !== "start" ||
@@ -214,13 +216,21 @@ export default {
                 "Choose a supported source and target language.",
               );
             const user = await identity(env, config.accessToken);
+            const ownKey = typeof config.providerKey === "string" ? config.providerKey.trim() : "";
+            if (ownKey.length > 512) throw new Error("Invalid provider key.");
+            const provider = ownKey ? config.provider : routeProvider;
+            if (!provider || !["openai", "soniox"].includes(provider))
+              throw new Error("Choose a supported caption provider.");
+            const providerKey = ownKey || (provider === "soniox" ? env.SONIOX_API_KEY : env.OPENAI_API_KEY) || "";
+            if (!providerKey) throw new Error("Caption provider is not configured.");
             // Reconcile renewals, refunds, and monthly allowances on annual plans
             // before allocating server-metered audio. Client flags never grant minutes.
             const development = isDevelopmentUser(env, user.id);
-            if (!development && env.REVENUECAT_SECRET_KEY) await refreshEntitlement(env, user.id);
+            const userFunded = !!ownKey;
+            if (!development && !userFunded && env.REVENUECAT_SECRET_KEY) await refreshEntitlement(env, user.id);
             if (stopping) return;
             const reserve = async () =>
-              development ? 15 : Number(
+              development || userFunded ? 15 : Number(
                 await db(env, "rpc/reserve_usage", {
                   p_owner: user.id,
                   p_session: sessionId,
@@ -235,7 +245,7 @@ export default {
               );
             translating = config.sourceLanguage !== config.targetLanguage;
             if (provider === 'soniox') {
-              soniox = new SonioxBackend(env.SONIOX_API_KEY!, sessionId, config.sourceLanguage, config.targetLanguage,
+              soniox = new SonioxBackend(providerKey, sessionId, config.sourceLanguage, config.targetLanguage,
                 segment => send({type: 'segment', segment}),
                 message => { error(message); void close('provider error'); },
                 () => void close('finished'), env.SONIOX_MODEL);
@@ -245,7 +255,7 @@ export default {
               const endpoint = translating
                 ? 'https://api.openai.com/v1/realtime/translations?model=gpt-realtime-translate'
                 : 'https://api.openai.com/v1/realtime?intent=transcription';
-              const r = await connectUpstream(endpoint, env.OPENAI_API_KEY!);
+              const r = await connectUpstream(endpoint, providerKey);
               upstream = r.webSocket ?? undefined;
               if (!upstream || r.status !== 101) throw new Error('OpenAI could not connect. Check the server API key and model access.');
               if (stopping) { upstream.close(); return; }

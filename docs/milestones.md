@@ -1,10 +1,10 @@
 # Implementation record
 
-The starting tree was already dirty: a C++ deletion and an untracked Tauri migration. No reset, checkout, clean, or commit was performed. No applicable AGENTS.md was found in the workspace or its parent chain.
+The starting tree was already dirty: the deletion of the legacy prototype and an untracked Tauri migration. No reset, checkout, clean, or commit was performed. No applicable AGENTS.md was found in the workspace or its parent chain.
 
 ## 1. Audit
 
-The app directly exposed a Deepgram key through Vite, used a generic model picker, did not translate, and rendered canvas/video PiP. The relay forwarded an unrelated Qwen realtime protocol with a shared development token. CI and architecture documents described deleted C++. Platform capabilities incorrectly advertised desktop-wide support. macOS used Tauri's private transparency feature. No authentication, synchronized history, purchases, server ledger, or tests existed in the migration.
+The app directly exposed a Deepgram key through Vite, used a generic model picker, did not translate, and rendered canvas/video PiP. The relay forwarded an unrelated Qwen realtime protocol with a shared development token. CI and architecture documents described the deleted prototype. Platform capabilities incorrectly advertised desktop-wide support. macOS used Tauri's private transparency feature. No authentication, synchronized history, purchases, server ledger, or tests existed in the migration.
 
 Misty references inspected: `~/misty-org/misty/DESIGN.md`, `src/styles/styles.css`, `src/shared/ui/button.tsx`, and `icon-button.tsx`. Audeeo uses the charcoal tokens, system typography, 36px controls, 16px Lucide icons, 6px control corners and 8/12/16px rhythm.
 
@@ -44,6 +44,6 @@ Verified: simulated streaming protocol and policy/queue tests; no live voice/lat
 
 ## 7. Release preparation — configuration/documentation drafted
 
-Replaced stale C++ CI/docs, added Mac sandbox configuration, native SDK build support, provider/rate evidence, a review/privacy checklist and a physical-device test matrix. Preserved existing development-team values. No production deployment, live billing or store submission occurred.
+Replaced the prototype’s stale CI/docs, added Mac sandbox configuration, native SDK build support, provider/rate evidence, a review/privacy checklist and a physical-device test matrix. Preserved existing development-team values. No production deployment, live billing or store submission occurred.
 
 Verified: local automated/build checks in `verification.md`. Blockers: all prior release gates, distribution signing and provisioning, complete privacy manifests/provider retention decisions, real support/privacy URLs, reviewer configuration and screenshots from the signed product.

@@ -1,6 +1,6 @@
 # Audeeo architecture
 
-Audeeo is a Tauri 2 / React application with native Apple capture and presentation. The prior C++ implementation is absent from this working tree. There are no assistant, summary, chat, delegation, or general agent features.
+Audeeo is a Tauri 2 / React application with native Apple capture and presentation. The legacy prototype is absent from this working tree. There are no assistant, summary, chat, delegation, or general agent features.
 
 ```text
 macOS private Core Audio process tap / native AVAudioEngine microphone

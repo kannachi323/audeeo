@@ -2,7 +2,7 @@
 
 # Verification record — 2026-09-12
 
-These results concern the current Tauri/Swift/Worker implementation. The old C++ latency and device claims have been removed; they are not evidence for this architecture.
+These results concern the current Tauri/Swift/Worker implementation. The prototype’s latency and device claims have been removed; they are not evidence for this architecture.
 
 ## Automated and build checks
 

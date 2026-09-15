@@ -121,8 +121,8 @@ public func resizeMainWindow(_ raw: UnsafeMutableRawPointer, _ contentHeight: Do
     window.isMovable = true
     let old = window.frame
     let desired = window.frameRect(forContentRect: NSRect(x: 0, y: 0, width: old.width, height: contentHeight))
-    let height = min(desired.height, visible.height)
-    let width = min(old.width, visible.width)
+    let height = min(max(desired.height, window.minSize.height), visible.height)
+    let width = min(max(old.width, window.minSize.width), visible.width)
     let x = min(max(old.minX, visible.minX), visible.maxX - width)
     let y = min(max(old.maxY - height, visible.minY), visible.maxY - height)
     let target = NSRect(x: x, y: y, width: width, height: height)
@@ -144,15 +144,43 @@ public func presentSettings(_ raw: UnsafeMutableRawPointer) {
     let window = Unmanaged<NSWindow>.fromOpaque(raw).takeUnretainedValue()
     window.makeKeyAndOrderFront(nil)
 }
+private var pendingWindowModes: [ObjectIdentifier: (overlay: Bool, clear: Bool)] = [:]
+private var fullscreenExitObservers: [ObjectIdentifier: NSObjectProtocol] = [:]
+
 @_cdecl("audeeo_window_mode")
 public func windowMode(_ raw: UnsafeMutableRawPointer, _ overlay: Bool, _ clear: Bool) {
     let window = Unmanaged<NSWindow>.fromOpaque(raw).takeUnretainedValue()
+    let identity = ObjectIdentifier(window)
+    if fullscreenExitObservers[identity] != nil {
+        pendingWindowModes[identity] = (overlay, clear)
+        return
+    }
+    if overlay && window.styleMask.contains(.fullScreen) {
+        // AppKit must finish leaving its fullscreen Space before removing the title bar.
+        pendingWindowModes[identity] = (overlay, clear)
+        fullscreenExitObservers[identity] = NotificationCenter.default.addObserver(
+            forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main
+        ) { [weak window] _ in
+            if let observer = fullscreenExitObservers.removeValue(forKey: identity) {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            guard let mode = pendingWindowModes.removeValue(forKey: identity), let window else { return }
+            windowMode(Unmanaged.passUnretained(window).toOpaque(), mode.overlay, mode.clear)
+        }
+        window.toggleFullScreen(nil)
+        return
+    }
     let frame = window.frame
-    let mask: NSWindow.StyleMask = [.titled, .fullSizeContentView, .resizable, .closable, .miniaturizable]
-    if window.styleMask != mask { window.styleMask = mask; window.setFrame(frame, display: true) }
+    let mask: NSWindow.StyleMask = overlay
+        ? [.borderless, .resizable]
+        : [.titled, .resizable, .closable, .miniaturizable]
+    if window.styleMask.subtracting(.fullScreen) != mask {
+        window.styleMask = window.styleMask.contains(.fullScreen) ? mask.union(.fullScreen) : mask
+        window.setFrame(frame, display: true)
+    }
     window.isMovable = true
     window.level = overlay ? .floating : .normal
-    window.collectionBehavior = overlay ? [.canJoinAllSpaces, .fullScreenAuxiliary] : [.managed]
+    window.collectionBehavior = overlay ? [.canJoinAllSpaces, .fullScreenAuxiliary] : [.managed, .fullScreenPrimary]
     let _ = clear // CSS owns the single visible panel surface and accessibility fallback.
     func clearWebBackground(_ view: NSView) {
         if let web = view as? WKWebView {
@@ -169,7 +197,7 @@ public func windowMode(_ raw: UnsafeMutableRawPointer, _ overlay: Bool, _ clear:
         content.layer?.masksToBounds = false
         content.layer?.cornerRadius = 0
         let existing = content.subviews.first { $0.identifier?.rawValue == "audeeo-overlay-grip" }
-        if existing == nil {
+        if overlay && existing == nil {
             // Leave the native top-edge resize band unobstructed. The grip sits
             // just inside the content instead of intercepting border drags.
             let grip = PanelDragRegion(frame: NSRect(x: content.bounds.midX - 24, y: content.bounds.height - 30, width: 48, height: 24))
@@ -178,17 +206,17 @@ public func windowMode(_ raw: UnsafeMutableRawPointer, _ overlay: Bool, _ clear:
             grip.setAccessibilityLabel("Drag to move captions; Command Option arrow keys also move the window")
             content.addSubview(grip)
         }
-        existing?.isHidden = false
+        if !overlay { existing?.removeFromSuperview() }
     }
-    window.isOpaque = false // Transparent pixels outside the rounded content.
-    window.backgroundColor = .clear
-    window.hasShadow = false
-    window.titleVisibility = .hidden
-    window.titlebarAppearsTransparent = true
-    window.titlebarSeparatorStyle = .none
+    window.isOpaque = !overlay
+    window.backgroundColor = overlay ? .clear : .windowBackgroundColor
+    window.hasShadow = !overlay
+    window.titleVisibility = overlay ? .hidden : .visible
+    window.titlebarAppearsTransparent = overlay
+    window.titlebarSeparatorStyle = overlay ? .none : .automatic
     window.isMovableByWindowBackground = false
     for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-        window.standardWindowButton(button)?.isHidden = true
+        window.standardWindowButton(button)?.isHidden = overlay
     }
 }
 #endif

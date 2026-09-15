@@ -56,14 +56,17 @@ export function CaptionToolbar(props: Props) {
   useLayoutEffect(() => {
     if (!open || detached || mobile || !root.current || !dialog.current) return;
     const place = () => {
-      const toolbar = root.current?.querySelector<HTMLElement>('.toolbar-buttons');
+      const footer = root.current;
       const trigger = triggers.current[open];
-      if (!toolbar || !trigger || !dialog.current) return;
-      const toolbarRect = toolbar.getBoundingClientRect();
+      if (!footer || !trigger || !dialog.current) return;
+      const footerRect = footer.getBoundingClientRect();
+      const style = getComputedStyle(footer);
+      const insetLeft = parseFloat(style.paddingLeft);
+      const availableWidth = footer.clientWidth - insetLeft - parseFloat(style.paddingRight);
       const triggerRect = trigger.getBoundingClientRect();
       const width = dialog.current.getBoundingClientRect().width;
-      setPopoverLeft(Math.max(0, Math.min(toolbarRect.width - width,
-        triggerRect.left + triggerRect.width / 2 - toolbarRect.left - width / 2)));
+      setPopoverLeft(Math.max(0, Math.min(availableWidth - width,
+        triggerRect.left + triggerRect.width / 2 - footerRect.left - insetLeft - width / 2)));
     };
     place();
     const observer = new ResizeObserver(place);

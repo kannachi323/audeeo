@@ -18,12 +18,12 @@
         "height": 320,
         "minWidth": 480,
         "minHeight": 224,
-        "maxHeight": 720,
+        "maxHeight": 900,
         "resizable": true,
-        "decorations": false,
+        "decorations": true,
         "transparent": true,
         "alwaysOnTop": false,
-        "shadow": false,
+        "shadow": true,
         "theme": "Dark"
       }
     ],

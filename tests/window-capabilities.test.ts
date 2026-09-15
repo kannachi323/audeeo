@@ -14,4 +14,6 @@ it("keeps a safe minimum width without capping desktop expansion", () => {
   const main = configuration.app.windows.find(window => window.label === "main");
   expect(main?.minWidth).toBe(480);
   expect(main).not.toHaveProperty("maxWidth");
+  expect(main?.decorations).toBe(true);
+  expect(main?.shadow).toBe(true);
 });

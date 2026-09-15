@@ -1,6 +1,46 @@
 fn main() {
     println!("cargo:rerun-if-env-changed=AUDEEO_NATIVE_ARCHIVE");
     let mut native_archive = std::env::var("AUDEEO_NATIVE_ARCHIVE").ok();
+    // macOS needs the real RevenueCat SDK for entitlement reads as well as purchases.
+    if native_archive.is_none() && std::env::var("CARGO_CFG_TARGET_OS").unwrap() == "macos" {
+        let root = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap())
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        let target = std::env::var("TARGET").unwrap();
+        let arch = if target.starts_with("x86_64") {
+            "x86_64"
+        } else {
+            "arm64"
+        };
+        println!("cargo:rerun-if-changed=../native/apple/Package.swift");
+        println!("cargo:rerun-if-changed=../native/apple/Package.resolved");
+        println!("cargo:rerun-if-changed=../native/apple/Sources");
+        println!("cargo:rerun-if-changed=../scripts/apple-native-build.sh");
+        let status = std::process::Command::new("sh")
+            .arg(root.join("scripts/apple-native-build.sh"))
+            .args(["macos", arch])
+            .status()
+            .expect("Xcode is required for macOS billing");
+        assert!(status.success(), "RevenueCat macOS build failed");
+        let output = std::process::Command::new("swift")
+            .args(["build", "--package-path"])
+            .arg(root.join("native/apple"))
+            .args(["-c", "release", "--arch", arch, "--show-bin-path"])
+            .output()
+            .expect("Cannot locate the macOS billing archive");
+        assert!(
+            output.status.success(),
+            "Cannot locate the macOS billing archive"
+        );
+        let products = std::path::PathBuf::from(String::from_utf8(output.stdout).unwrap().trim());
+        native_archive = Some(
+            products
+                .join("libAudeeoNative.a")
+                .to_string_lossy()
+                .into_owned(),
+        );
+    }
     // iOS must never silently compile the no-SDK purchase stub.
     if native_archive.is_none() && std::env::var("CARGO_CFG_TARGET_OS").unwrap() == "ios" {
         let root = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap())
@@ -90,69 +130,13 @@ fn main() {
         let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
         if os == "macos" {
             println!("cargo:rustc-link-lib=framework=AppKit");
+            println!("cargo:rustc-link-lib=framework=CoreAudio");
         } else {
             for framework in ["UIKit", "AVKit", "CoreMedia", "CoreVideo"] {
                 println!("cargo:rustc-link-lib=framework={framework}");
             }
         }
         println!("cargo:rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
-    }
-    if native_archive.is_none() && std::env::var("CARGO_CFG_TARGET_OS").unwrap() == "macos" {
-        let out = std::env::var("OUT_DIR").unwrap();
-        let target = std::env::var("TARGET").unwrap();
-        let arch = if target.starts_with("aarch64") {
-            "arm64"
-        } else {
-            "x86_64"
-        };
-        let sources = [
-            "../native/apple/Sources/AudeeoNative/MacPanel.swift",
-            "../native/apple/Sources/AudeeoNative/Microphone.swift",
-            "../native/apple/Sources/AudeeoNative/Playback.swift",
-            "../native/apple/Sources/AudeeoNative/SystemAudio.swift",
-            "../native/apple/Sources/AudeeoNative/CaptureSources.swift",
-            "../native/apple/Sources/AudeeoNative/OAuth.swift",
-            "../native/apple/Sources/AudeeoNative/CredentialStore.swift",
-            "../native/apple/Sources/AudeeoNative/Purchases.swift",
-            "../native/apple/Sources/AudeeoNative/NativeHistory.swift",
-        ];
-        for source in sources {
-            println!("cargo:rerun-if-changed={source}");
-        }
-        let status = std::process::Command::new("xcrun")
-            .args([
-                "swiftc",
-                "-emit-library",
-                "-static",
-                "-module-name",
-                "AudeeoNative",
-                "-target",
-                &format!("{arch}-apple-macosx13.0"),
-            ])
-            .args(sources)
-            .args(["-o", &format!("{out}/libAudeeoNative.a")])
-            .status()
-            .expect("Swift compiler required");
-        assert!(status.success(), "Native Apple build failed");
-        println!("cargo:rustc-link-search=native={out}");
-        println!("cargo:rustc-link-lib=static=AudeeoNative");
-        println!("cargo:rustc-link-lib=framework=AppKit");
-        println!("cargo:rustc-link-lib=framework=AVFoundation");
-        println!("cargo:rustc-link-lib=framework=CoreAudio");
-        println!("cargo:rustc-link-lib=framework=AuthenticationServices");
-        println!("cargo:rustc-link-lib=framework=LocalAuthentication");
-        println!("cargo:rustc-link-lib=framework=Security");
-        println!("cargo:rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
-        if let Ok(output) = std::process::Command::new("xcode-select")
-            .arg("-p")
-            .output()
-        {
-            if output.status.success() {
-                let xcode_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                println!("cargo:rustc-link-arg=-Wl,-rpath,{xcode_path}/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.5/macosx");
-                println!("cargo:rustc-link-arg=-Wl,-rpath,{xcode_path}/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/macosx");
-            }
-        }
     }
     tauri_build::build()
 }

@@ -35,7 +35,9 @@ final class SystemAudioRoute {
                 : CATapDescription(monoMixdownOfProcesses: processes)
             description.name = "Audeeo source audio"
             description.isPrivate = true
-            description.isProcessRestoreEnabled = true
+            if #available(macOS 26.0, *) {
+                description.isProcessRestoreEnabled = true
+            }
             // Capture a copy for the model-input mixer. The source keeps its
             // normal OS route and audible volume; Audeeo never remonitors it.
             description.muteBehavior = .unmuted

@@ -36,6 +36,8 @@ beforeEach(() => {
   mocks.reconcile.mockResolvedValue({ active: true });
 });
 afterEach(cleanup);
+HTMLElement.prototype.scrollIntoView = vi.fn();
+HTMLElement.prototype.hasPointerCapture = vi.fn(() => false);
 
 function Harness({
   complete = vi.fn(),
@@ -120,6 +122,32 @@ it("completes BYOK with one key and leaves the last page panel-free", async () =
   expect(screen.queryByText("Translation ready")).toBeNull();
   await user.click(screen.getByRole("button", { name: "Start using Audeeo" }));
   expect(complete).toHaveBeenCalledWith("openai");
+});
+
+it("preserves keys when switching providers and completes with the selected provider", async () => {
+  const user = userEvent.setup();
+  const complete = vi.fn();
+  render(<Harness complete={complete} />);
+  await user.click(screen.getByRole("button", { name: "Use my keys" }));
+  expect(screen.queryByLabelText("Soniox API key")).toBeNull();
+  await user.type(screen.getByLabelText("OpenAI API key"), "sk-personal");
+  const selectProvider = async (name: string) => {
+    screen.getByRole("combobox", { name: "Caption provider" }).focus();
+    await user.keyboard(" ");
+    await user.click(screen.getByRole("option", { name }));
+  };
+  await selectProvider("Soniox");
+  expect(screen.queryByLabelText("OpenAI API key")).toBeNull();
+  const save = screen.getByRole("button", { name: "Save & continue" });
+  expect((save as HTMLButtonElement).disabled).toBe(true);
+  await user.type(screen.getByLabelText("Soniox API key"), "soniox-personal");
+  await selectProvider("OpenAI");
+  expect((screen.getByLabelText("OpenAI API key") as HTMLInputElement).value).toBe("sk-personal");
+  await selectProvider("Soniox");
+  expect((screen.getByLabelText("Soniox API key") as HTMLInputElement).value).toBe("soniox-personal");
+  await user.click(save);
+  await user.click(screen.getByRole("button", { name: "Start using Audeeo" }));
+  expect(complete).toHaveBeenCalledWith("soniox");
 });
 
 it("remounts onboarding pages for transitions and shows an arrow on Back", async () => {

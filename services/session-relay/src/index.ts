@@ -60,7 +60,7 @@ export default {
         if (event.type === "TEST") return respond({ ok: true });
         const existing = await db(
           env,
-          `billing_events?id=eq.${encodeURIComponent(event.id)}&select=id`,
+          `billing_webhook_events?id=eq.${encodeURIComponent(event.id)}&select=id`,
           undefined,
           "GET",
         );
@@ -78,13 +78,13 @@ export default {
         // Insert after reconciliation: failed events remain retryable. Concurrent duplicates are harmless.
         await db(
           env,
-          "billing_events?on_conflict=id",
+          "billing_webhook_events?on_conflict=id",
           { id: event.id },
           "POST",
         ).catch(async () => {
           const rows = await db(
             env,
-            `billing_events?id=eq.${encodeURIComponent(event.id)}&select=id`,
+            `billing_webhook_events?id=eq.${encodeURIComponent(event.id)}&select=id`,
             undefined,
             "GET",
           );

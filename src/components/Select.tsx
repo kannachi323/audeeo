@@ -23,10 +23,10 @@ export function Select<T extends string>({label, value, onChange, options, disab
   const blockReopen = useRef(false);
   const closeGuardTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [boundary,setBoundary] = useState<HTMLElement | null>(null);
-  if (native) return <select className="select-trigger native-select" aria-label={label} value={value} disabled={disabled}
+  if (native) return <span className="native-select-field"><select className="select-trigger native-select" aria-label={label} value={value} disabled={disabled}
     onChange={event=>onChange(event.currentTarget.value as T)}>
     {options.map(option=><option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>)}
-  </select>;
+  </select><ChevronDown aria-hidden="true"/></span>;
   return <SelectPrimitive.Root open={open} onOpenChange={nextOpen=>{
     if (nextOpen && blockReopen.current) return;
     setOpen(nextOpen);

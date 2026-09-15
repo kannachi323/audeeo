@@ -8,18 +8,14 @@ final class SystemAudioRoute {
     private var tap: AudioObjectID = 0
     private var device: AudioObjectID = 0
     private var io: AudioDeviceIOProcID?
-    private let playback = TranslationPlayback()
     private var deviceListener: AudioObjectPropertyListenerBlock?
     private var generation = 0
     private let slots = DispatchSemaphore(value: 8)
     private let failureLock = NSLock()
     private var failureQueued = false
-    var volume: Float = 1 { didSet { playback.volume = volume } }
     private var outputAddress = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
-    func start(_ callback: @escaping AudioCallback) throws {
+    func start(processes: [AudioObjectID], _ callback: @escaping AudioCallback) throws {
         stop()
-        playback.reset()
-        playback.maximumSeconds = 1
         failureLock.lock(); failureQueued = false; failureLock.unlock()
         let run = generation
         func check(_ code: OSStatus) throws {
@@ -32,10 +28,17 @@ final class SystemAudioRoute {
             try check(AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, UInt32(MemoryLayout<pid_t>.size), &pid, &size, &own))
             guard own != 0 else { throw NSError(domain: "Audeeo", code: 30) }
             // All playback is native in this process. No WebView audio output enters the mix.
-            let description = CATapDescription(monoGlobalTapButExcludeProcesses: [own])
+            // A nonempty process list is an explicit application selection;
+            // otherwise capture the global mix while excluding Audeeo itself.
+            let description = processes.isEmpty
+                ? CATapDescription(monoGlobalTapButExcludeProcesses: [own])
+                : CATapDescription(monoMixdownOfProcesses: processes)
             description.name = "Audeeo source audio"
             description.isPrivate = true
-            description.muteBehavior = .mutedWhenTapped
+            description.isProcessRestoreEnabled = true
+            // Capture a copy for the model-input mixer. The source keeps its
+            // normal OS route and audible volume; Audeeo never remonitors it.
+            description.muteBehavior = .unmuted
             try check(AudioHardwareCreateProcessTap(description, &tap))
             var asbd = AudioStreamBasicDescription()
             size = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
@@ -52,7 +55,6 @@ final class SystemAudioRoute {
                 kAudioAggregateDeviceTapListKey: [[kAudioSubTapUIDKey: description.uuid.uuidString, kAudioSubTapDriftCompensationKey: true]]
             ]
             try check(AudioHardwareCreateAggregateDevice(aggregate as CFDictionary, &device))
-            playback.onError = { [weak self] _ in self?.stop(); callback(nil, 0, 2) }
             let queue = DispatchQueue(label: "com.mattdev727.audeeo.source-audio")
             try check(AudioDeviceCreateIOProcIDWithBlock(&io, device, queue) { [weak self] _, input, _, _, _ in
                 guard let self else { return }
@@ -83,10 +85,7 @@ final class SystemAudioRoute {
                 DispatchQueue.main.async {
                     defer { self.slots.signal() }
                     guard self.generation == run else { return }
-                    do {
-                        try self.playback.enqueue(pcm: data)
-                        data.withUnsafeBytes { callback($0.bindMemory(to: UInt8.self).baseAddress, data.count, 0) }
-                    } catch { self.stop(); callback(nil, 0, 2) }
+                    data.withUnsafeBytes { callback($0.bindMemory(to: UInt8.self).baseAddress, data.count, 0) }
                 }
             })
             let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
@@ -105,34 +104,27 @@ final class SystemAudioRoute {
             AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &outputAddress, .main, listener)
             deviceListener = nil
         }
-        // Release the reader first: mutedWhenTapped restores normal source output immediately.
         if let io { AudioDeviceStop(device, io); AudioDeviceDestroyIOProcID(device, io) }
         io = nil
         if device != 0 { AudioHardwareDestroyAggregateDevice(device); device = 0 }
         if tap != 0 { AudioHardwareDestroyProcessTap(tap); tap = 0 }
-        playback.stop()
     }
     deinit { stop() }
 }
 private var systemRoute: AnyObject?
 @_cdecl("audeeo_system_start")
-public func systemStart(_ callback: @escaping AudioCallback) {
+public func systemStart(_ source: UnsafePointer<CChar>?, _ callback: @escaping AudioCallback) {
+    let value = source.map(String.init(cString:)) ?? ""
     DispatchQueue.main.async {
         guard #available(macOS 14.2, *) else { callback(nil, 0, 3); return }
         if systemRoute == nil { systemRoute = SystemAudioRoute() }
-        do { try (systemRoute as? SystemAudioRoute)?.start(callback) }
+        let processes: [AudioObjectID] = value.hasPrefix("macos:")
+            ? value.dropFirst("macos:".count).split(separator: ",").compactMap { UInt32($0) }
+            : []
+        do { try (systemRoute as? SystemAudioRoute)?.start(processes: processes, callback) }
         catch { callback(nil, 0, 1) }
     }
 }
 @_cdecl("audeeo_system_stop")
 public func systemStop() { DispatchQueue.main.async { if #available(macOS 14.2, *) { (systemRoute as? SystemAudioRoute)?.stop() } } }
-@_cdecl("audeeo_source_volume")
-public func sourceVolume(_ volume: Double) {
-    DispatchQueue.main.async {
-        if #available(macOS 14.2, *) {
-            if systemRoute == nil { systemRoute = SystemAudioRoute() }
-            (systemRoute as? SystemAudioRoute)?.volume = Float(min(1, max(0, volume)))
-        }
-    }
-}
 #endif

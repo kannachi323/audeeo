@@ -12,9 +12,11 @@ Further milestone results and exact release blockers are recorded in `verificati
 
 ## 2. Native foundations — implemented; physical proof pending
 
-Removed the private Tauri macOS feature/config flag. Added a public AppKit subtitle panel with recording status, start/stop and access to React controls, plus an opaque reduced-transparency fallback. Added AVAudioEngine microphone capture, Keychain and native OAuth bridges. ScreenCaptureKit now excludes Audeeo's process, validates PCM format and reports interruptions. iOS has native microphone capture, URLSession relay ownership, AVKit sample-buffer PiP and owner-scoped finalized text buffering. The canvas/video experiment was removed.
+Removed the private Tauri macOS feature/config flag. Added a public AppKit subtitle panel with recording status, start/stop and access to React controls, plus an opaque reduced-transparency fallback. Added AVAudioEngine microphone capture, Keychain and native OAuth bridges. ScreenCaptureKit excludes Audeeo's process, validates PCM format and reports interruptions on macOS and iOS 27. iOS has native device-playback capture, optional microphone capture, URLSession relay ownership, AVKit sample-buffer PiP and owner-scoped finalized text buffering. The canvas/video experiment was removed.
 
-Verified: Mac executable and development app bundle build; iOS target compiles. Blockers: unlocked Mac/physical Apple devices and signed validation; iOS other-app playback broadcast extension integration and provisioning remain unfinished.
+The desktop session now defaults to a microphone + playback model-input mix. Each channel has live virtual gain/mute before one bounded 16 kHz stream reaches the relay. macOS source tapping is unmuted and never remonitored; Windows all-desktop capture excludes Audeeo's process tree. Hardware output selection and independent output routing remain backlog work.
+
+Verified earlier: Mac executable and development app bundle build. The PCM mixer has deterministic gain, mute, underrun and limiting tests; Windows Rust compiles locally. Blockers: physical Mac/Windows echo and long-run clock validation, an iOS 27 SDK, unlocked Mac/physical Apple devices, and signed ScreenCaptureKit/PiP validation.
 
 ## 3. Recognition and translation — code/tests complete; live proof pending
 

@@ -1,5 +1,7 @@
 > Current streaming, audio-routing, and window changes are recorded in [September 13 verification](streaming-window-verification.md). The September 12 two-window/UI descriptions below are historical and superseded; earlier billing/database checks were not rerun unless stated in the new record.
 
+> The later iOS 27 ScreenCaptureKit change supersedes every iOS compile result below. This Windows host has no iOS 27 SDK, so that native path remains compile- and device-verification pending.
+
 # Verification record — 2026-09-12
 
 These results concern the current Tauri/Swift/Worker implementation. The prototype’s latency and device claims have been removed; they are not evidence for this architecture.

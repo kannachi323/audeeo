@@ -1,13 +1,15 @@
 import { RealtimeSttSession, type RealtimeResult, type SttSessionConfig } from '@soniox/node';
 import type { Language, Segment } from '../../../shared/pipeline';
+import { hasSessionContext, sonioxContext, type SessionContext } from '../../../shared/context';
 
 const aliases: Record<string, string> = {cmn: 'zh', 'zh-cn': 'zh', 'zh-tw': 'zh', 'zh-hk': 'zh', nb: 'no', nn: 'no', fil: 'tl'};
-export function sonioxConfig(source: Language, target: Language, model = 'stt-rt-v5'): SttSessionConfig {
+export function sonioxConfig(source: Language, target: Language, model = 'stt-rt-v5', context?: SessionContext): SttSessionConfig {
   return {
     model, audio_format: 'pcm_s16le', sample_rate: 16000, num_channels: 1,
     enable_language_identification: true, enable_endpoint_detection: true,
     ...(source === 'auto' ? {} : {language_hints: [aliases[source] || source]}),
     ...(source === target ? {} : {translation: {type: 'one_way', target_language: aliases[target] || target}}),
+    ...(context && hasSessionContext(context) ? {context: sonioxContext(context)} : {}),
   };
 }
 
@@ -70,10 +72,10 @@ export class SonioxBackend {
   readonly captions: SonioxCaptions;
   constructor(key: string, sessionId: string, source: Language, target: Language,
     emit: (s: Segment) => void, onError: (message: string) => void, onFinished: () => void,
-    model?: string) {
+    model?: string, context?: SessionContext) {
     this.captions = new SonioxCaptions(sessionId, source, target, emit);
     this.session = new RealtimeSttSession(key, 'wss://stt-rt.soniox.com/transcribe-websocket',
-      sonioxConfig(source, target, model), {connect_timeout_ms: 10000});
+      sonioxConfig(source, target, model, context), {connect_timeout_ms: 10000});
     this.session.on('result', result => this.captions.ingest(result, result.total_audio_proc_ms));
     this.session.on('endpoint', () => this.captions.flush());
     this.session.on('finished', onFinished);

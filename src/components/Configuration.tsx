@@ -3,12 +3,14 @@ import {transcriptionLanguages, translationSources, translationTargets, isTransl
 import { ArrowLeftRight, Headphones, Mic, Monitor } from "lucide-react";
 import { Button } from "./Button";
 import type { Language } from "../../shared/pipeline";
+import { systemAudioDescription, systemAudioLabel } from "../lib/platform";
 export function Configuration({
   mode, onMode,
   input,
   source,
   active,
   systemAudio,
+  platform = "browser",
   save,
   onInput,
   onSource,
@@ -23,6 +25,7 @@ export function Configuration({
   onTarget: (target: Language) => void;
   active: boolean;
   systemAudio: boolean;
+  platform?: string;
   save: boolean;
   onInput: (input: "microphone" | "system") => void;
   onSource: (source: Language) => void;
@@ -40,7 +43,7 @@ export function Configuration({
             onClick={() => onInput("microphone")}
           >
             <Mic />
-            Microphone
+            Microphone (your input)
           </Button>
           <Button
             variant="outline"
@@ -49,12 +52,10 @@ export function Configuration({
             onClick={() => onInput("system")}
           >
             <Monitor />
-            Device playback
+            {systemAudioLabel(platform)}
           </Button>
         </div>
-        {!systemAudio && (
-          <small>Device playback capture isn’t available on this device.</small>
-        )}
+        <small>{systemAudioDescription(platform)}</small>
       </div>
       <div className="setting-group">
         <label>Caption mode<Select label="Caption mode" value={mode} disabled={active} onChange={onMode} options={[{value:'subtitles',label:'Subtitles'},{value:'translate',label:'Translation'}]}/></label>
@@ -66,11 +67,7 @@ export function Configuration({
             <label>Translation<Select label="Translation language" value={target} disabled={active} onChange={onTarget} options={translationTargets.map(option=>({...option,disabled:option.value===source}))}/></label>
           </>}
         </div>
-        <small>
-          {active
-            ? "Stop captions to change the audio input or languages."
-            : "Choose a source language or use automatic detection."}
-        </small>
+        {active && <small>Stop captions to change these settings.</small>}
       </div>
       <div className="setting-group availability-row">
         <Headphones />
@@ -86,10 +83,6 @@ export function Configuration({
         <label className="setting-toggle">
           <span>
             Don’t save this session
-            <small>
-              Finalized text saves automatically unless you opt out. Audeeo does
-              not save raw audio.
-            </small>
           </span>
           <input
             type="checkbox"

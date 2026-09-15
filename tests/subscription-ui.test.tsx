@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   info: vi.fn(), plans: vi.fn(), action: vi.fn(), reconcile: vi.fn(), native: vi.fn(() => false),
 }));
 vi.mock("@tauri-apps/api/core", () => ({ isTauri: mocks.native }));
-vi.mock("../src/lib/account", () => ({ accountRequest: mocks.reconcile }));
+vi.mock("../src/lib/account", () => ({ syncSubscriptionUsage: mocks.reconcile }));
 vi.mock("../src/lib/subscriptions", () => ({
   customerInfo: mocks.info, subscriptionPlans: mocks.plans,
   subscriptionAction: mocks.action, subscriptionManagementURL: () => null,
@@ -17,7 +17,11 @@ beforeEach(() => {
   vi.clearAllMocks(); mocks.native.mockReturnValue(false);
   mocks.info.mockResolvedValue({ active: false });
   mocks.plans.mockResolvedValue([{ id: "yearly", price: "$99.00", productID: "yearly" }]);
-  mocks.reconcile.mockResolvedValue({ active: true });
+  mocks.reconcile.mockResolvedValue({ active: false, unlimited: false, usedSeconds: 60, includedSeconds: 300, remainingSeconds: 240 });
+});
+it("shows the server-authoritative usage counter", async () => {
+  render(<Subscriptions session={session} platform="browser" disabled={false} onBusy={() => {}} />);
+  expect(await screen.findByText("1 of 5 minutes used · 4 remaining")).toBeTruthy();
 });
 afterEach(cleanup);
 it("retains purchased entitlement and directs refresh when server reconciliation fails", async () => {

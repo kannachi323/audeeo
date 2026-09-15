@@ -21,7 +21,8 @@ enable_anonymous_sign_ins = false
 minimum_password_length = 8
 
 [auth.email]
-enable_signup = false
+enable_signup = true
+enable_confirmations = true
 
 # Configure Google/Apple credentials in the hosted dashboard.
 # Omitted provider properties are preserved by config push.

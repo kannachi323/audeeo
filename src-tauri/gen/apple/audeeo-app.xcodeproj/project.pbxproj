@@ -18,6 +18,7 @@
 		8FFAAA54EC2EAEF1F68A4C3D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 93806245F3898F4BD5EC9E29 /* LaunchScreen.storyboard */; };
 		A4D4AD83062B11A30A286C10 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B7CD014805A2D23AA8366A42 /* Metal.framework */; };
 		AA9EBE7F2A141EF9758D9AB6 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6131672646B15254AD78219A /* WebKit.framework */; };
+		C7E4B4A1A2474B4E81E1A001 /* ScreenCaptureKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C7E4B4A1A2474B4E81E1A002 /* ScreenCaptureKit.framework */; };
 		EF93F9B0792CB4508D547A8C /* assets in Resources */ = {isa = PBXBuildFile; fileRef = 2A9960BF1CB816DE737DD9FB /* assets */; };
 		F96D90FA349FA2815828EA44 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3108C2E689C82687BEFECC7B /* MetalKit.framework */; };
 /* End PBXBuildFile section */
@@ -30,6 +31,7 @@
 		3108C2E689C82687BEFECC7B /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
 		3BA33235FDD76A4A0F1FB15A /* lib.rs */ = {isa = PBXFileReference; path = lib.rs; sourceTree = "<group>"; };
 		6131672646B15254AD78219A /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
+		C7E4B4A1A2474B4E81E1A002 /* ScreenCaptureKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ScreenCaptureKit.framework; path = System/Library/Frameworks/ScreenCaptureKit.framework; sourceTree = SDKROOT; };
 		6F325A2AFE2FCC40A89171DE /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		855F63DF13C551115FA7F1E7 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		93806245F3898F4BD5EC9E29 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
@@ -57,6 +59,7 @@
 				6D30D2687858470F2866D960 /* Security.framework in Frameworks */,
 				35F71348DDA95D4722F17B6B /* UIKit.framework in Frameworks */,
 				AA9EBE7F2A141EF9758D9AB6 /* WebKit.framework in Frameworks */,
+				C7E4B4A1A2474B4E81E1A001 /* ScreenCaptureKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -149,6 +152,7 @@
 				2074E8FF74D272D1E41848E2 /* Security.framework */,
 				855F63DF13C551115FA7F1E7 /* UIKit.framework */,
 				6131672646B15254AD78219A /* WebKit.framework */,
+				C7E4B4A1A2474B4E81E1A002 /* ScreenCaptureKit.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -411,7 +415,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -466,7 +470,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";

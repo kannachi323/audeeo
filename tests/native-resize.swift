@@ -19,7 +19,7 @@ final class ResizeTestWebView: WKWebView {
         _ = NSApplication.shared
         let original = NSRect(x: 300, y: 300, width: 500, height: 260)
         let screen = NSRect(x: 0, y: 0, width: 1600, height: 1000)
-        let minimum = NSSize(width: 360, height: 260)
+        let minimum = NSSize(width: 480, height: 260)
         let window = ResizeTestWindow(contentRect: original, styleMask: [.borderless], backing: .buffered, defer: false)
         let host = NSView(frame: NSRect(origin: .zero, size: original.size))
         window.contentView = host
@@ -44,7 +44,7 @@ final class ResizeTestWebView: WKWebView {
         precondition(!window.updates[0].1 && !window.updates[0].2, "Do not force an early display or animate geometry")
         region.queueResizeFrame(PanelResizeRegion.resized(original, delta: NSPoint(x: 999, y: 0), edges: (-1, 0), minimum: minimum, screen: screen))
         region.endResizeRendering()
-        precondition(window.frame.width == 360 && window.frame.maxX == original.maxX)
+        precondition(window.frame.width == 480 && window.frame.maxX == original.maxX)
         precondition(window.updates.count == 2, "Release must flush the final frame")
         precondition(web.ends == 1)
         region.flushResizeFrame()

@@ -78,7 +78,7 @@ it("keeps unsupported capture and live input changes unavailable without pretend
   expect(
     (
       screen.getByRole("button", {
-        name: "Device playback",
+        name: "Device audio",
       }) as HTMLButtonElement
     ).disabled,
   ).toBe(true);

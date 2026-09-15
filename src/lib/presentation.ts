@@ -1,5 +1,5 @@
 export type SessionPhase = 'idle' | 'connecting' | 'live' | 'stopping';
-export type Page = 'captions' | 'history' | 'settings' | 'account' | 'configuration' | 'overlay';
+export type Page = 'captions' | 'history' | 'settings' | 'account' | 'configuration' | 'overlay' | 'providers';
 export type Presentation = { phase: SessionPhase; page: Page; playing: boolean };
 export type PresentationAction = { type: 'phase'; value: SessionPhase } | { type: 'page'; value: Page } | { type: 'playing'; value: boolean };
 export const initialPresentation: Presentation = { phase: 'idle', page: 'captions', playing: false };

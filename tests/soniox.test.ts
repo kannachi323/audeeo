@@ -52,9 +52,9 @@ beforeEach(() => {
   vi.stubGlobal('Response', class {headers = new Headers(); constructor(public body: any, public options: any) {} });
 });
 afterEach(() => {vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals();});
-async function start(path = '/v1/realtime/soniox', extra = {}) {
+async function start(path = '/v1/realtime/soniox', extra = {}, context?: unknown) {
   const response = await relay.fetch(new Request(`https://relay.test${path}`,{headers:{Upgrade:'websocket'}}), {SONIOX_API_KEY:'private-soniox-test-key', SUPABASE_SECRET_KEY:'fake', ...extra} as any);
-  downstream.message({type:'start',accessToken:'fake',sourceLanguage:'en',targetLanguage:'zh'});
+  downstream.message({type:'start',accessToken:'fake',sourceLanguage:'en',targetLanguage:'zh',context});
   await vi.advanceTimersByTimeAsync(0);
   return response;
 }
@@ -76,6 +76,11 @@ it('runs the real SDK through the separate relay route without an OpenAI key', a
   expect(JSON.stringify(downstream.sent)).not.toContain('private-soniox-test-key');
   expect(vi.getTimerCount()).toBe(0);
 });
+it('propagates validated structured context through relay startup', async () => {
+  await start('/v1/realtime/soniox',{}, {category:'religious-spiritual',text:'A lecture on patristics',terms:['theosis'],translationTerms:[{source:'λόγος',target:'Logos'}]});
+  expect(upstream.sent[0]).toMatchObject({context:{general:[{key:'domain',value:'Religious & Spiritual'}],text:'A lecture on patristics',terms:['theosis'],translation_terms:[{source:'λόγος',target:'Logos'}]}});
+  expect(JSON.stringify(downstream.sent)).not.toContain('patristics');
+});
 it('uses a session-only user key without requiring a server provider key', async () => {
   await relay.fetch(new Request('https://relay.test/v1/realtime',{headers:{Upgrade:'websocket'}}), {SUPABASE_SECRET_KEY:'fake'} as any);
   downstream.message({type:'start',accessToken:'fake',sourceLanguage:'en',targetLanguage:'zh',provider:'soniox',providerKey:'user-soniox-key'});
@@ -86,7 +91,7 @@ it('uses a session-only user key without requiring a server provider key', async
   expect(JSON.stringify(downstream.sent)).not.toContain('user-soniox-key');
 });
 it('selects Soniox via the server setting and closes it on silence', async () => {
-  await start('/v1/realtime', {CAPTION_PROVIDER:'soniox'});
+  await start('/v1/realtime');
   await vi.advanceTimersByTimeAsync(30000);
   expect(upstream.closed).toBe(true);
   expect(downstream.sent.at(-1).reason).toBe('silence timeout');

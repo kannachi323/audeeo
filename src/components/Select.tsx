@@ -1,39 +1,73 @@
-import {useEffect, useRef, useState} from "react";
+import {createContext, useContext, useRef, useState} from "react";
+import type {ReactNode} from "react";
 import * as SelectPrimitive from '@radix-ui/react-select';
 import {Check, ChevronDown, ChevronUp} from 'lucide-react';
 
-// Same Radix primitive and visual treatment as Misty's shared/ui/select.
+const NativeSelectContext = createContext(false);
+
+export function NativeSelectProvider({children}: {children: ReactNode}) {
+  return <NativeSelectContext.Provider value>{children}</NativeSelectContext.Provider>;
+}
+
+// Same Radix primitive and visual treatment as Misty's shared/ui/select. Detached
+// desktop controls opt into the platform select because its menu is allowed to
+// cross the small controls WebView's native bounds without resizing that window.
 export function Select<T extends string>({label, value, onChange, options, disabled}: {
   label: string; value: T; onChange: (value:T)=>void;
-  options: readonly {value: T; label: string; disabled?: boolean}[]; disabled?: boolean;
+  options: readonly {value: T; label: string; icon?: ReactNode; disabled?: boolean}[]; disabled?: boolean;
 }) {
+  const native = useContext(NativeSelectContext);
   const trigger = useRef<HTMLButtonElement>(null);
   const [open,setOpen] = useState(false);
   const closingClick = useRef(false);
+  const blockReopen = useRef(false);
+  const closeGuardTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [boundary,setBoundary] = useState<HTMLElement | null>(null);
-  const reserveSpace = (open: boolean) => {
-    if (!trigger.current?.closest('.detached-controls')) return;
-    // Menus overlay subsequent fields, but need room below their own trigger.
-    const bottom = open ? trigger.current.getBoundingClientRect().bottom + 4 + Math.min(240, options.length * 32 + 48) + 16 : 0;
-    document.dispatchEvent(new CustomEvent('caption-select-space', {detail: bottom}));
-  };
-  useEffect(()=>()=>reserveSpace(false),[]);
-  return <SelectPrimitive.Root open={open} onOpenChange={open=>{setOpen(open);reserveSpace(open);if(open) setBoundary(trigger.current?.closest(".subtitle-panel") as HTMLElement | null);}} value={value} onValueChange={v=>onChange(v as T)} disabled={disabled}>
+  if (native) return <select className="select-trigger native-select" aria-label={label} value={value} disabled={disabled}
+    onChange={event=>onChange(event.currentTarget.value as T)}>
+    {options.map(option=><option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>)}
+  </select>;
+  return <SelectPrimitive.Root open={open} onOpenChange={nextOpen=>{
+    if (nextOpen && blockReopen.current) return;
+    setOpen(nextOpen);
+    if(nextOpen) setBoundary(trigger.current?.closest(".subtitle-panel") as HTMLElement | null);
+  }} value={value} onValueChange={v=>onChange(v as T)} disabled={disabled}>
     <SelectPrimitive.Trigger ref={trigger} className="select-trigger" aria-label={label}
       style={{pointerEvents: open ? 'auto' : undefined}}
-      onPointerDown={event=>{
+      onPointerDownCapture={event=>{
         closingClick.current = false;
         if (open && event.button === 0 && !event.ctrlKey) {
-          // Radix normally opens on pointerdown and disables outside pointer
-          // events. Keep this trigger interactive so a second press toggles it.
+          // Radix opens on pointerdown. Intercept the second press before its
+          // trigger handler runs so closing cannot be followed by a reopen.
           event.preventDefault();
+          event.stopPropagation();
+          event.nativeEvent.stopImmediatePropagation();
           closingClick.current = true;
-          setOpen(false); reserveSpace(false);
+          blockReopen.current = true;
+          if (closeGuardTimer.current) clearTimeout(closeGuardTimer.current);
+          // A cancelled pointer sequence may not produce a click. Release the
+          // guard eventually without allowing that same press to reopen it.
+          closeGuardTimer.current = setTimeout(()=>{
+            closingClick.current = false;
+            blockReopen.current = false;
+            closeGuardTimer.current = null;
+          },500);
+          setOpen(false);
         }
       }}
-      onClick={event=>{
+      onClickCapture={event=>{
         // Suppress Radix's touch/click fallback after the closing pointerdown.
-        if (closingClick.current) { event.preventDefault(); closingClick.current = false; }
+        if (closingClick.current) {
+          event.preventDefault();
+          event.stopPropagation();
+          event.nativeEvent.stopImmediatePropagation();
+          if (closeGuardTimer.current) clearTimeout(closeGuardTimer.current);
+          closeGuardTimer.current = setTimeout(()=>{
+            closingClick.current = false;
+            blockReopen.current = false;
+            closeGuardTimer.current = null;
+          },0);
+        }
       }}>
 
       <SelectPrimitive.Value/><SelectPrimitive.Icon asChild><ChevronDown/></SelectPrimitive.Icon>
@@ -43,7 +77,7 @@ export function Select<T extends string>({label, value, onChange, options, disab
         <SelectPrimitive.ScrollUpButton className="select-scroll"><ChevronUp/></SelectPrimitive.ScrollUpButton>
         <SelectPrimitive.Viewport className="select-viewport">
           {options.map(option=><SelectPrimitive.Item key={option.value} value={option.value} disabled={option.disabled} className="select-item">
-            <SelectPrimitive.ItemText>{option.label}</SelectPrimitive.ItemText>
+            <SelectPrimitive.ItemText><span className="select-item-label">{option.icon}{option.label}</span></SelectPrimitive.ItemText>
             <SelectPrimitive.ItemIndicator className="select-check"><Check/></SelectPrimitive.ItemIndicator>
           </SelectPrimitive.Item>)}
         </SelectPrimitive.Viewport>

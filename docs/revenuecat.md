@@ -1,5 +1,7 @@
 # RevenueCat subscriptions: Audeeo web and iOS
 
+The approved launch prices are **$8 USD monthly** and **$80 USD yearly**. Both products grant the same `audeeo_pro` entitlement; yearly billing renews the monthly usage allowance at purchase anniversaries.
+
 Audeeo keeps its React/Tauri interface. Browser checkout uses `@revenuecat/purchases-js` 1.60.1; Apple apps use the existing Swift bridge with RevenueCat 5.89.0. iOS also links RevenueCatUI for native Paywalls and Customer Center. SwiftUI is not required for the app interface.
 
 ## 1. Install and configure
@@ -13,20 +15,20 @@ The package and npm lockfile are updated. `native/apple/Package.swift` pins the 
 The root `.env` uses Audeeo's explicit Vite configuration allowlist (not `VITE_*`):
 
 ```dotenv
-# Public SDK keys; safe to bundle. This is the supplied Test Store key.
-REVENUECAT_WEB_KEY=test_JRuMuWeCPcSorEjxcuSzTrJJkPD
+# Public SDK keys; safe to bundle. Use the RevenueCat Billing `rcb_` key in production.
+REVENUECAT_WEB_KEY=rcb_REPLACE_WITH_YOUR_PUBLIC_WEB_KEY
 # For Test Store development only, this can use the same test_ key.
 # For actual Apple StoreKit sandbox/TestFlight/App Store use the Apple app's appl_ key.
 REVENUECAT_APPLE_KEY=appl_REPLACE_WITH_YOUR_APPLE_PUBLIC_KEY
 ```
 
-Your local configuration uses the supplied Apple public SDK key for Apple purchases and the Test Store key for web development. Replace the web key with its platform-specific public key before launching web billing. Restart Vite after changing keys. Never put a RevenueCat secret key in either public variable. Test Store transactions do not exercise Apple's payment system; passing them is not proof of StoreKit readiness.
+The local production configuration uses the Audeeo RevenueCat Billing public key. Use the Test Store key only for isolated development. Restart Vite after changing keys. Never put a RevenueCat secret key in either public variable. Test Store transactions do not exercise Apple's payment system; passing them is not proof of StoreKit readiness.
 
 References: [Web SDK installation](https://www.revenuecat.com/docs/getting-started/installation/web-sdk), [SDK configuration](https://www.revenuecat.com/docs/getting-started/configuring-sdk), [Test Store](https://www.revenuecat.com/docs/test-and-launch/sandbox/test-store).
 
 ## 2. Configure products and an offering in RevenueCat
 
-These are dashboard steps; the local implementation does not create products or publish a paywall remotely.
+The web dashboard setup is complete: RevenueCat Billing is connected to the Audeeo live Stripe account, and the current `default` offering includes both Test Store and web products.
 
 1. Use one RevenueCat project for Audeeo's Apple and web apps. Add the Apple app with bundle ID `com.mattdev727.audeeo` and connect App Store Connect credentials.
 2. Create entitlement **`audeeo_pro`**.
@@ -36,8 +38,8 @@ These are dashboard steps; the local implementation does not create products or 
 
 | Display name | Product identifier | Standard RevenueCat package | SDK property |
 |---|---|---|---|
-| Yearly | `yearly` | `$rc_annual` | `annual` |
-| Monthly | `monthly` | `$rc_monthly` | `monthly` |
+| Yearly | `audeeo_pro_yearly_web` (web) / `yearly` (Test Store) | `$rc_annual` | `annual` |
+| Monthly | `audeeo_pro_monthly_web` (web) / `monthly` (Test Store) | `$rc_monthly` | `monthly` |
 
 If Apple products already have other identifiers, keep those and map them to the same packages. The code selects packages, not hardcoded store product IDs. Assign your chosen prices, currencies, and billing durations in each billing provider. Prices in the app come from the SDK.
 
@@ -52,6 +54,7 @@ References: [Offerings](https://www.revenuecat.com/docs/offerings/overview), [Pa
 - `src/components/Subscriptions.tsx` is mounted in Account. It displays Pro status, expiry/renewal date and localized prices, supports explicit restoration, and refreshes when the app regains focus. It never automatically triggers an Apple restore sheet on focus.
 - `native/apple/Sources/AudeeoNative/Purchases.swift` identifies the Supabase UUID, reads `audeeo_pro`, selects `annual`/`monthly`, purchases/restores through StoreKit, and presents `PaywallViewController` or `CustomerCenterViewController` on the main thread.
 - `src/lib/account.ts` correlates native callbacks with unique request IDs. Interactive purchases do not time out while a payment sheet is open. Both sides prevent overlapping billing operations.
+- `website/src/pages/Pricing.tsx` offers direct monthly and yearly web checkout after sign-in. It uses the same Supabase UUID as the app, then asks the authenticated relay to reconcile the purchased entitlement into Audeeo's server-enforced allowance.
 
 The shared customer ID is `session.user.id`, matching the authenticated server and native SDK. Do not use email addresses, a hardcoded ID, or a newly generated ID per launch. Signing in to the same account on another device retrieves its RevenueCat entitlements. Web does not use a native `restorePurchases()` method.
 
@@ -124,7 +127,7 @@ export async function mountSubscriptions(root, authenticatedUser) {
   root.querySelector('[data-refresh]').addEventListener('click', () =>
     run(() => purchases.getCustomerInfo()), { signal: abort.signal });
   root.querySelector('[data-paywall]').addEventListener('click', () => run(async () => {
-    const result = await purchases.presentPaywall({ customerEmail: authenticatedUser.email });
+    const result = await purchases.presentPaywall({ htmlTarget: root, customerEmail: authenticatedUser.email });
     return result.customerInfo;
   }), { signal: abort.signal });
   await run(async () => {
@@ -156,7 +159,9 @@ For Audeeo, use the integrated component instead of mounting this separate examp
 
 Set the relay's secret `REVENUECAT_SECRET_KEY` to the same project's server API key and configure authenticated webhooks at `https://YOUR_RELAY/v1/billing/webhook` using `REVENUECAT_WEBHOOK_AUTH_KEY`. The checked-in relay binding now uses `REVENUECAT_ENTITLEMENT=audeeo_pro`; deploy that configuration when deploying the relay. Configure allowed origins for your deployed web app.
 
-Client purchase results update display state only. `/v1/purchases/restore` validates the user's access token, fetches authoritative RevenueCat subscriber state, and updates server allowance. Webhooks and session startup also reconcile entitlement state. Failed reconciliation does not grant paid minutes, and the UI tells the customer to retry refresh rather than buy again.
+Client purchase results update display state only. `/v1/purchases/restore` validates the user's access token, fetches authoritative RevenueCat subscriber state, and atomically updates the server allowance plus a private `billing_subscriptions` mirror. A paid allowance is accepted only when the entitlement maps to a concrete RevenueCat product and store transaction/subscription identifier. The mirror records the RevenueCat customer ID, subscription ID, entitlement, product, store, period, and last verification time; RLS and grants keep it inaccessible to end-user JWTs.
+
+The restore response and authenticated `GET /v1/account/usage` return a server-derived usage snapshot from `allowances`: used, included, and remaining seconds for the active paid or lifetime-free allowance. The app and website render that snapshot rather than calculating usage from RevenueCat or local session history. Webhooks and session startup also reconcile entitlement state. Failed reconciliation does not grant paid minutes, and the UI tells the customer to retry refresh rather than buy again.
 
 The existing product configuration determines included audio minutes. Yearly billing now resets the same monthly allowance at UTC purchase anniversaries, with month-end clamping; it does not accidentally stretch one month's minutes across a year. Refunds, expiration, transfers, and renewals must be delivered to the authenticated webhook. Choose RevenueCat's restore/transfer policy deliberately for account ownership. Do not store a persistent `isPro` boolean as authorization.
 

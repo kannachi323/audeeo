@@ -8,8 +8,8 @@ import {CaptionToolbar} from '../../src/components/CaptionToolbar';
 import type {ControlGroup} from '../../src/components/AudioControls';
 import '../../src/styles.css';
 function Fixture() {
-  const [input,setInput]=useState<'microphone'|'system'>('system'),[captionMode,setCaptionMode]=useState<'subtitles'|'translate'>('translate'),[source,setSource]=useState<string>('en');
-  const [sourceVolume,setSourceVolume]=useState(1),[translatedVolume,setTranslatedVolume]=useState(1),[sourceMuted,setSourceMuted]=useState(false),[translatedMuted,setTranslatedMuted]=useState(false);
+  const [input,setInput]=useState<'microphone'|'system'|'mixed'>('mixed'),[captionMode,setCaptionMode]=useState<'subtitles'|'translate'>('translate'),[source,setSource]=useState<string>('en');
+  const [microphoneGain,setMicrophoneGain]=useState(1),[desktopGain,setDesktopGain]=useState(1),[translatedVolume,setTranslatedVolume]=useState(1),[microphoneMuted,setMicrophoneMuted]=useState(false),[desktopMuted,setDesktopMuted]=useState(false),[translatedMuted,setTranslatedMuted]=useState(false);
   const [silence,setSilence]=useState({timeoutSeconds:30,thresholdDbfs:-60});
   const [open,setOpen]=useState<ControlGroup|null>(null);
   const [size,setSize]=useState(40),[width,setWidth]=useState(400),[error,setError]=useState(false);
@@ -18,7 +18,7 @@ function Fixture() {
     <header className="panel-header"><CaptureStatus input={input} status="idle" playing={false} platform="browser"/><div className="header-actions"><button className="button icon-button" aria-label="Show audio overlay"><AudioLines/></button><button className="button icon-button" aria-label="Open settings"><Settings2/></button></div></header>
     <div className="page-content"><LiveCaptions source={'An earlier sentence. '.repeat(80)+'The newest source text stays readable.'} translation={'这是之前的字幕。'.repeat(80)+'最后的字幕始终清晰可见。'} sourceLanguage={source} targetLanguage={target} size={size}/></div>
     {error && <div className="notice" role="alert">Stopped after silence to save usage. Press Start to resume.</div>}
-    <CaptionToolbar {...{input,setInput,captionMode,setCaptionMode,source,setSource,target,setTarget,sourceVolume,setSourceVolume,sourceMuted,setSourceMuted,translatedVolume,setTranslatedVolume,translatedMuted,setTranslatedMuted,silence,setSilence,open,setOpen}} active={false} systemAudio status="idle" playing={false} startDisabled={false} onToggle={()=>{}}/>
+    <CaptionToolbar {...{input,setInput,captionMode,setCaptionMode,source,setSource,target,setTarget,microphoneGain,setMicrophoneGain,microphoneMuted,setMicrophoneMuted,desktopGain,setDesktopGain,desktopMuted,setDesktopMuted,translatedVolume,setTranslatedVolume,translatedMuted,setTranslatedMuted,silence,setSilence,open,setOpen}} active={false} systemAudio applicationAudio={false} platform="browser" captureSourceId="all" setCaptureSourceId={()=>{}} inputMix translatedPlayback translationContext={{category:'general',text:'',terms:[],translationTerms:[]}} setTranslationContext={()=>{}}/>
   </main></>;
 }
 createRoot(document.getElementById('root')!).render(<Fixture/>);

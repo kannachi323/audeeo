@@ -11,6 +11,7 @@
     "MAX_SESSION_SECONDS": "1800",
     "CAPTION_PROVIDER": "soniox",
     "SONIOX_MODEL": "stt-rt-v5",
+    "SUMMARY_MODEL": "gpt-5.6-luna",
     "REVENUECAT_ENTITLEMENT": "audeeo_pro",
     "ALLOWED_ORIGINS": "http://localhost:1420,tauri://localhost,http://tauri.localhost,https://audeeo.app,https://www.audeeo.app"
   },

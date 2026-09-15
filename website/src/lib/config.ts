@@ -1,6 +1,7 @@
 export type PublicConfig = {
   supabaseUrl: string
   supabasePublishableKey: string
+  relayUrl: string
   revenueCatWebKey: string
 }
 

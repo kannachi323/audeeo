@@ -2,7 +2,7 @@
 
 Desktop-first live captions and Mandarin ↔ English translation, built with Tauri, React, native Apple audio/presentation, a Cloudflare relay, and Supabase. The Apple release is in development; see [release gates](docs/release.md).
 
-The current implementation provides one caption/settings window, native microphone capture, macOS Core Audio source routing with independent source/translation audio controls, a streaming relay with separate OpenAI and Soniox backends, and owner-scoped text history/usage enforcement. System audio mixing requires macOS 14.2+. Automatic language switching and iOS other-app audio capture remain unavailable. See [streaming behavior and verified limits](docs/openai-captions.md).
+The current implementation provides one caption/settings window, a desktop microphone/playback PCM mixer with independent model-input gain and mute, application isolation where the operating system exposes it, a streaming relay with separate OpenAI and Soniox backends, and owner-scoped text history/usage enforcement. Desktop playback capture requires macOS 14.2+ or Windows 10 build 20348+. Mobile retains its existing single-input modes. iOS requires iOS 27 and uses ScreenCaptureKit device playback plus native caption PiP; there is no ReplayKit fallback. See [audio capture and model-input mixing](docs/audio-sources.md) and [streaming behavior and verified limits](docs/openai-captions.md).
 
 ## Local development
 
@@ -15,7 +15,7 @@ npm run dev
 # In another terminal: npm --prefix services/session-relay run dev
 ```
 
-Configure the root `.env` for both app and local relay. Only the explicit public allowlist in `vite.config.ts` enters the frontend bundle; server secrets stay in the relay. Use `SUPABASE_PUBLISHABLE_KEY=sb_publishable_...` for the app and `SUPABASE_SECRET_KEY=sb_secret_...` for the relay. Secret keys are sent only in the `apikey` header; user authorization uses the signed-in user’s access token. Legacy `anon` and `service_role` API keys are not configured by this integration. Restart development processes after changing configuration. Production relay secrets must be configured in Cloudflare separately. Apply all Supabase migrations with `supabase db push` and configure an explicit test allowance before a live caption session. Never bundle provider keys. Authentication uses Google and Apple only; email/password is disabled. See [Supabase setup](docs/supabase.md) for provider credentials, redirects, RLS, and verification. The app development/build commands do not deploy services.
+Configure the root `.env` for both app and local relay. Only the explicit public allowlist in `vite.config.ts` enters the frontend bundle; server secrets stay in the relay. Use `SUPABASE_PUBLISHABLE_KEY=sb_publishable_...` for the app and `SUPABASE_SECRET_KEY=sb_secret_...` for the relay. Secret keys are sent only in the `apikey` header; user authorization uses the signed-in user’s access token. Legacy `anon` and `service_role` API keys are not configured by this integration. Restart development processes after changing configuration. Production relay secrets must be configured in Cloudflare separately. Apply all Supabase migrations with `supabase db push` and configure an explicit test allowance before a live caption session. Never bundle provider keys. Authentication supports Google, Apple, and confirmed email/password accounts. See [Supabase setup](docs/supabase.md) for provider credentials, redirects, RLS, and verification. The app development/build commands do not deploy services.
 
 ```sh
 npm run check
@@ -31,7 +31,7 @@ See [architecture](docs/architecture.md), [providers and benchmarks](docs/models
 
 ## Current window controls
 
-Sign in with Apple or Google, then use the Audio & languages icon in the floating panel for source, mode, languages, and independent volume/mute controls. Settings contains appearance, text-history preferences, history, and account controls. Settings and captions animate within the same window; Back or Escape returns to captions without stopping audio.
+Sign in with Apple or Google, then use the bottom caption toolbar for context, source, mode, languages, audio, and silence controls. Translation context opens as the leftmost compact popover; Settings remains for appearance, providers, text history, and account controls. Saved sessions can be summarized on demand and expanded into titles, chapters, terminology, exact quotations, and transcript-grounded Q&A. Settings and captions animate within the same window; Back or Escape returns to captions without stopping audio.
 
 The window behaves normally while idle. An active listening session or pending audio playback automatically raises it above ordinary windows; opening Settings keeps that level until the session finishes and playback drains. Overlay captions can have a clear background and controls that appear on hover or keyboard focus. The drag grip and ⌘⌥ arrow keys move the window. Reduce Motion and Reduce Transparency are respected.
 
@@ -41,7 +41,7 @@ Live use requires configured `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` and `REL
 
 See [RevenueCat web and iOS setup](docs/revenuecat.md) for product mapping, public keys, paywalls, Customer Center, server reconciliation, and iOS build/testing instructions.
 
-Caption modes use one provider session at a time. Soniox is available separately through its official Node SDK; see [Soniox setup, provider switching, and live tests](docs/soniox-captions.md). OpenAI remains the default when `CAPTION_PROVIDER` is unset. Set server-only `OPENAI_API_KEY` in `.env` and in the deployed Worker. Translation displays target text and plays the model’s generated audio; it remains billed by audio duration. See [OpenAI captions](docs/openai-captions.md).
+Caption modes use one provider session at a time. Audeeo-funded subscriptions default to Soniox through its official Node SDK; see [Soniox setup, provider switching, and live tests](docs/soniox-captions.md). Users can still choose either Soniox or OpenAI with their own API key. Set the corresponding server-only provider keys in `.env` and in the deployed Worker. Soniox currently returns translated text only; OpenAI translation also returns generated audio and remains billed by audio duration. See [OpenAI captions](docs/openai-captions.md).
 
 
 ### Desktop sign-in storage

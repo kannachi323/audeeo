@@ -72,11 +72,25 @@ vi.mock('../src/lib/realtime',()=>({
     async connect(...args: any[]) { native.connect(...args); native.relayEvent({type:'ready',sessionId:'test-session'}); }
     sendAudio() {}
     finish=native.finish;
-  }, NativeRelayClient: class {},
+  }, NativeRelayClient: class {
+    constructor(_endpoint: string, event: any) { native.relayEvent=event; }
+    async connect(...args: any[]) { native.connect(...args); native.relayEvent({type:'ready',sessionId:'test-session'}); }
+    sendAudio() {}
+    finish=native.finish;
+  },
 }));
 vi.mock('../src/lib/platform', async importOriginal => ({
   ...await importOriginal<any>(),
   NativeCapture: class { async start() {} stop=native.captureStop; },
+}));
+vi.mock('../src/lib/playback', () => ({
+  BrowserPlayback: class {
+    async prepare() {}
+    enqueue() {}
+    setVolume() {}
+    stop() {}
+    dispose() {}
+  },
 }));
 vi.mock('../src/lib/captureMixer',()=>({
   DesktopCaptureMixer: class {
@@ -133,15 +147,23 @@ it("uses one normal caption window after authentication", async () => {
   await waitFor(()=>expect(native.invoke).toHaveBeenCalledWith('set_window_mode', {overlay:false,clear:false}));
   expect(native.invoke).not.toHaveBeenCalledWith('set_overlay_visible', expect.anything());
 });
-it("starts native diagonal resizing from the transparent window corners", async () => {
+it("uses native window chrome while idle and custom resize handles only during a session", async () => {
   native.platform = "windows";
+  const user = userEvent.setup();
   const {container} = render(<App />);
   await screen.findByRole('button', {name:'Start captions'});
   await waitFor(()=>expect(native.invoke).toHaveBeenCalledWith('set_window_mode', {overlay:false,clear:false}));
+  expect(container.querySelector('.window-resize-handle')).toBeNull();
+  expect(container.querySelector('.window-drag-grip')).toBeNull();
+  await user.click(screen.getByRole('button', {name:'Start captions'}));
+  await waitFor(()=>expect(native.invoke).toHaveBeenCalledWith('set_window_mode', {overlay:true,clear:true}));
   const corner = container.querySelector('.resize-southeast');
   expect(corner).toBeTruthy();
   fireEvent.pointerDown(corner!, {button: 0});
   expect(native.startResizeDragging).toHaveBeenCalledWith('SouthEast');
+  await user.click(screen.getByRole('button', {name:'Stop captions'}));
+  await waitFor(()=>expect(container.querySelector('.window-resize-handle')).toBeNull());
+  expect(container.querySelector('.window-drag-grip')).toBeNull();
 });
 it("puts independent audio controls in the panel and returns from Settings", async () => {
   const user = userEvent.setup(); render(<App />);
@@ -179,7 +201,9 @@ it("puts independent audio controls in the panel and returns from Settings", asy
   expect(localStorage.getItem('audeeo.show-source')).toBe('false');
   await user.keyboard('{Escape}');
   expect(screen.getByRole('button', {name:'Start captions'})).toBeTruthy();
-  expect(native.invoke).toHaveBeenCalledWith('resize_overlay_width', {width:840});
+  expect(native.invoke).not.toHaveBeenCalledWith('resize_overlay_width', {width:840});
+  await user.click(screen.getByRole('button', {name:'Start captions'}));
+  await waitFor(()=>expect(native.invoke).toHaveBeenCalledWith('resize_overlay_width', {width:840}));
   expect(native.invoke).not.toHaveBeenCalledWith('hide_settings_window');
 });
 it("toggles a caption dropdown closed from its active trigger", async () => {
@@ -229,18 +253,21 @@ it("returns to the required account gate after sign-out", async () => {
   expect(screen.queryByLabelText('Live captions')).toBeNull();
 });
 
-it('preserves capture and overlay through Settings until provider and playback both finish', async()=>{
+it('restores normal window chrome in Settings without stopping capture or playback', async()=>{
   const user=userEvent.setup(); render(<App/>);
   await user.click(await screen.findByRole('button',{name:'Start captions'}));
   await waitFor(()=>expect(native.invoke).toHaveBeenCalledWith('set_window_mode',{overlay:true,clear:true}));
   await user.click(screen.getByRole('button',{name:'Open settings'}));
   expect(screen.getByRole('heading',{name:'Settings'})).toBeTruthy();
   expect(native.captureStop).not.toHaveBeenCalled();expect(native.finish).not.toHaveBeenCalled();
-  expect(native.invoke).toHaveBeenCalledWith('set_window_mode',{overlay:true,clear:false});
+  expect(native.invoke.mock.calls.filter(([name])=>name==='set_window_mode').at(-1)?.[1]).toEqual({overlay:false,clear:false});
+  await user.click(screen.getByRole('button', {name:'Show audio overlay'}));
+  expect(native.invoke.mock.calls.filter(([name])=>name==='set_window_mode').at(-1)?.[1]).toEqual({overlay:true,clear:true});
+  await user.click(screen.getByRole('button', {name:'Open settings'}));
   await act(async()=>{native.relayEvent({type:'audio',pcm:'AAA=',sampleRate:24000});native.relayEvent({type:'finished',reason:'finished'});});
   expect(native.captureStop).toHaveBeenCalled();
   expect(native.invoke).toHaveBeenCalledWith('audio_output',{command:{pcm:'AAA='}});
-  expect(native.invoke.mock.calls.filter(([name])=>name==='set_window_mode').at(-1)?.[1]).toEqual({overlay:true,clear:false});
+  expect(native.invoke.mock.calls.filter(([name])=>name==='set_window_mode').at(-1)?.[1]).toEqual({overlay:false,clear:false});
   await act(async()=>native.playbackEvent({payload:0}));
   expect(native.invoke).toHaveBeenCalledWith('set_window_mode',{overlay:false,clear:false});
   expect(screen.getByRole('heading',{name:'Settings'})).toBeTruthy();

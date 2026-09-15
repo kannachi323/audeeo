@@ -9,9 +9,11 @@ import {
   subscriptionPlans,
   type Plan,
 } from "../lib/subscriptions";
-import type { ProviderId, ProviderKeys, ProviderMode } from "../lib/providers";
+import { captionProviders, type ProviderId, type ProviderKeys, type ProviderMode } from "../lib/providers";
 import { Button } from "./Button";
+import { CaptionProviderLogo } from "./CaptionProviderLogo";
 import { ProviderIcon } from "./ProviderIcon";
+import { Select } from "./Select";
 
 export const AUDEEO_PRO_FEATURES = [
   "Live captions",
@@ -68,6 +70,10 @@ export function DesktopOnboarding({
   onComplete: (mode: ProviderMode) => void;
 }) {
   const [stage, setStage] = useState<Stage>(session ? (initialMode === "audeeo" ? "choice" : "keys") : "account");
+  const [keyProvider, setKeyProvider] = useState<ProviderId>(() => initialMode !== "audeeo"
+    ? initialMode
+    : captionProviders.find(provider => keys[provider.id].trim())?.id ?? "openai");
+  const selectedProvider = captionProviders.find(provider => provider.id === keyProvider)!;
   const [emailOpen, setEmailOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -177,16 +183,8 @@ export function DesktopOnboarding({
   }
 
   function finishKeys() {
-    const provider: ProviderId | undefined =
-      initialMode !== "audeeo" && keys[initialMode].trim()
-        ? initialMode
-        : keys.openai.trim()
-          ? "openai"
-          : keys.soniox.trim()
-            ? "soniox"
-            : undefined;
-    if (!provider) return;
-    onMode(provider);
+    if (!keys[keyProvider].trim()) return;
+    onMode(keyProvider);
     setStage("ready");
   }
 
@@ -197,10 +195,10 @@ export function DesktopOnboarding({
       {stage === "account" && <>
         <OnboardingHeading>Welcome to Audeeo</OnboardingHeading>
         {!emailOpen ? <div className="onboarding-auth-actions">
-          <Button disabled={!configured || authPending} onClick={() => onSocialSignIn("apple")}>
+          <Button variant="default" disabled={!configured || authPending} onClick={() => onSocialSignIn("apple")}>
             <ProviderIcon provider="apple"/><span>Continue with Apple</span>
           </Button>
-          <Button variant="outline" disabled={!configured || authPending} onClick={() => onSocialSignIn("google")}>
+          <Button variant="default" disabled={!configured || authPending} onClick={() => onSocialSignIn("google")}>
             <ProviderIcon provider="google"/><span>Continue with Google</span>
           </Button>
           <Button variant="outline" disabled={!configured || authPending} onClick={() => setEmailOpen(true)}>
@@ -234,7 +232,7 @@ export function DesktopOnboarding({
             }}>
             {emailAction === "signup" ? "Creating account…" : "Create account"}
           </Button>
-          <Button type="button" variant="outline" onClick={() => {
+          <Button type="button" className="onboarding-link" variant="outline" onClick={() => {
             setEmailOpen(false);
             setConfirmationRequired(false);
             setPassword("");
@@ -290,14 +288,22 @@ export function DesktopOnboarding({
         <Button className="onboarding-back" variant="outline" onClick={() => setStage("choice")}><ArrowLeft aria-hidden="true"/><span>Back</span></Button>
         <OnboardingHeading>Connect your keys</OnboardingHeading>
         <div className="onboarding-key-fields">
-          <label htmlFor="onboarding-openai-key">OpenAI API key</label>
-          <input id="onboarding-openai-key" type="password" value={keys.openai} autoComplete="off" spellCheck={false}
-            maxLength={512} placeholder="sk-…" onChange={event => onKey("openai", event.target.value)} />
-          <label htmlFor="onboarding-soniox-key">Soniox API key</label>
-          <input id="onboarding-soniox-key" type="password" value={keys.soniox} autoComplete="off" spellCheck={false}
-            maxLength={512} placeholder="Enter your Soniox API key" onChange={event => onKey("soniox", event.target.value)} />
+          <div className="provider-select-field">
+            <label>
+              Provider
+              <Select label="Caption provider" value={keyProvider} onChange={setKeyProvider}
+                options={captionProviders.map(provider => ({
+                  value: provider.id,
+                  label: provider.name,
+                  icon: <CaptionProviderLogo provider={provider.id}/>,
+                }))}/>
+            </label>
+          </div>
+          <label htmlFor={`onboarding-${keyProvider}-key`}>{selectedProvider.name} API key</label>
+          <input id={`onboarding-${keyProvider}-key`} type="password" value={keys[keyProvider]} autoComplete="off" spellCheck={false}
+            maxLength={512} placeholder={selectedProvider.keyPlaceholder} onChange={event => onKey(keyProvider, event.target.value)} />
         </div>
-        <Button className="onboarding-primary" disabled={!keys.openai.trim() && !keys.soniox.trim()} onClick={finishKeys}>Save &amp; continue</Button>
+        <Button className="onboarding-primary" disabled={!keys[keyProvider].trim()} onClick={finishKeys}>Save &amp; continue</Button>
         <Button className="onboarding-link" variant="outline" onClick={() => setStage("subscription")}>Use Audeeo instead</Button>
       </>}
 

@@ -44,7 +44,7 @@ fn handle_oauth_callback(app: &tauri::AppHandle, url: &tauri::Url) {
     }
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn oauth_loopback_callback(method: &str, target: &str) -> Option<tauri::Url> {
     if method != "GET" {
         return None;
@@ -63,7 +63,7 @@ fn oauth_loopback_callback(method: &str, target: &str) -> Option<tauri::Url> {
     Some(native)
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn serve_oauth_loopback(
     listener: std::net::TcpListener,
     app: tauri::AppHandle,
@@ -116,7 +116,7 @@ fn serve_oauth_loopback(
     }
 }
 
-#[cfg(all(test, target_os = "windows"))]
+#[cfg(all(test, any(target_os = "macos", target_os = "windows")))]
 mod oauth_loopback_tests {
     use super::oauth_loopback_callback;
 
@@ -140,7 +140,7 @@ fn oauth_redirect_url(
     app: tauri::AppHandle,
     state: tauri::State<OAuthLoopbackState>,
 ) -> Result<String, String> {
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
         let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
             .map_err(|_| "Couldn’t prepare the browser sign-in callback. Please try again.")?;
@@ -158,7 +158,7 @@ fn oauth_redirect_url(
         });
         return Ok(format!("http://127.0.0.1:{port}/auth/callback"));
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let _ = (app, state);
         Ok("audeeo://auth/callback".into())
@@ -288,14 +288,14 @@ extern "C" fn microphone_data(bytes: *const u8, len: usize, error: i32) {
         }
     }
 }
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(target_os = "ios")]
 extern "C" {
     fn audeeo_begin_oauth(
         url: *const std::ffi::c_char,
         callback: extern "C" fn(*const std::ffi::c_char),
     );
 }
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(target_os = "ios")]
 extern "C" fn oauth_callback(url: *const std::ffi::c_char) {
     if !url.is_null() {
         if let Some(app) = APP.get() {
@@ -514,7 +514,7 @@ fn begin_oauth(app: tauri::AppHandle, url: String) -> Result<(), String> {
     {
         return Err("Invalid sign-in URL".into());
     }
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[cfg(target_os = "ios")]
     {
         let _ = app;
         let url = std::ffi::CString::new(url).map_err(|e| e.to_string())?;
@@ -522,6 +522,20 @@ fn begin_oauth(app: tauri::AppHandle, url: String) -> Result<(), String> {
             audeeo_begin_oauth(url.as_ptr(), oauth_callback);
         }
         return Ok(());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = app;
+        // Launch Services opens HTTPS URLs in the user's default browser.
+        let status = std::process::Command::new("/usr/bin/open")
+            .arg(&url)
+            .status()
+            .map_err(|_| "Couldn’t open the default browser. Check default-browser settings and try again.")?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err("Couldn’t open the default browser. Check default-browser settings and try again.".into())
+        }
     }
     #[cfg(target_os = "windows")]
     {
@@ -863,7 +877,14 @@ fn set_window_mode(window: tauri::Window, overlay: bool, clear: bool) -> Result<
         window.run_on_main_thread(move || unsafe { audeeo_window_mode(raw as *mut std::ffi::c_void, overlay, clear); }).map_err(|e| e.to_string())?;
     }
     #[cfg(all(desktop, not(target_os = "macos")))]
-    window.set_always_on_top(overlay).map_err(|error| error.to_string())?;
+    {
+        if overlay && window.is_fullscreen().map_err(|error| error.to_string())? {
+            window.set_fullscreen(false).map_err(|error| error.to_string())?;
+        }
+        window.set_decorations(!overlay).map_err(|error| error.to_string())?;
+        window.set_shadow(!overlay).map_err(|error| error.to_string())?;
+        window.set_always_on_top(overlay).map_err(|error| error.to_string())?;
+    }
     #[cfg(not(desktop))]
     let _ = (window, overlay);
     #[cfg(not(target_os = "macos"))]
@@ -1008,10 +1029,18 @@ fn nudge_main_window(window: tauri::Window, dx: f64, dy: f64) -> Result<(), Stri
 
 // AppKit preserves the top edge and clamps the expanded frame to the visible screen.
 #[tauri::command]
-fn resize_main_window(window: tauri::Window, height: f64) -> Result<(), String> {
-    if !height.is_finite() || !(224.0..=720.0).contains(&height) {
+fn resize_main_window(window: tauri::Window, height: f64, onboarding: Option<bool>) -> Result<(), String> {
+    if !height.is_finite() || !(224.0..=900.0).contains(&height) {
         return Err("Unsupported window height".into());
     }
+    let setup = onboarding.unwrap_or(false);
+    let min_width: f64 = if setup { 720.0 } else { 480.0 };
+    let min_height: f64 = if setup { 800.0 } else { 224.0 };
+    let height = height.max(min_height);
+    #[cfg(desktop)]
+    window
+        .set_min_size(Some(tauri::LogicalSize::new(min_width, min_height)))
+        .map_err(|e| e.to_string())?;
     #[cfg(target_os = "macos")]
     {
         let raw = window.ns_window().map_err(|e| e.to_string())? as usize;
@@ -1025,12 +1054,12 @@ fn resize_main_window(window: tauri::Window, height: f64) -> Result<(), String> 
     {
         let scale = window.scale_factor().map_err(|e| e.to_string())?;
         let current = window.outer_size().map_err(|e| e.to_string())?;
-        let width = current.width as f64 / scale;
+        let width = (current.width as f64 / scale).max(min_width);
         window
             .set_size(tauri::LogicalSize::new(width, height))
             .map_err(|e| e.to_string())?;
     }
-    let _ = (window, height);
+    let _ = (window, height, min_width);
     Ok(())
 }
 

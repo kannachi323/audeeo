@@ -12,6 +12,7 @@ npm --prefix services/session-relay ci
 cp .env.example .env
 npm run dev
 # Or: npm run desktop
+# Only when RELAY_URL=http://127.0.0.1:8787:
 # In another terminal: npm --prefix services/session-relay run dev
 ```
 

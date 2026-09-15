@@ -5,7 +5,7 @@ repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 platform=${1:-macos}
 case "$platform" in
  macos)
-   swift build --package-path "$repo/native/apple" --product AudeeoNative -c release
+   swift build --package-path "$repo/native/apple" --product AudeeoNative -c release --arch "${2:-$(uname -m)}"
    exit 0 ;;
  ios) destination='generic/platform=iOS'; sdk=iphoneos ;;
  ios-simulator) destination='generic/platform=iOS Simulator'; sdk=iphonesimulator ;;

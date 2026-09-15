@@ -14,7 +14,14 @@ function Fixture() {
   const [open,setOpen]=useState<ControlGroup|null>(null);
   const [size,setSize]=useState(40),[width,setWidth]=useState(400),[error,setError]=useState(false);
   const [target,setTarget]=useState('zh');
-  return <><label>Fixture width <input type="range" min="360" max="700" value={width} onChange={e=>setWidth(+e.target.value)}/></label><label>Caption size<input type="range" min="18" max="40" value={size} onChange={e=>setSize(+e.target.value)}/></label><label>Fixture error<input type="checkbox" checked={error} onChange={e=>setError(e.target.checked)}/></label><main className={`subtitle-panel ${open ? "popover-open" : ""}`} style={{width,height:248}}>
+  const overlay = new URLSearchParams(location.search).has('overlay');
+  const style = {width,height:248, ...(overlay ? {
+    '--overlay-background':'rgba(20, 60, 80, 0.2)', '--overlay-border':'#00ccff', '--overlay-border-width':'2px',
+    '--overlay-radius':'0px', '--overlay-font':'monospace', '--overlay-opacity':'.8',
+    '--overlay-text-opacity':'.7', '--overlay-font-weight':'500', '--overlay-source-text':'#ffffaa',
+    '--overlay-text':'#aaffff', '--overlay-controls-opacity':'.4',
+  } : {})} as React.CSSProperties;
+  return <><label>Fixture width <input type="range" min="360" max="700" value={width} onChange={e=>setWidth(+e.target.value)}/></label><label>Caption size<input type="range" min="18" max="40" value={size} onChange={e=>setSize(+e.target.value)}/></label><label>Fixture error<input type="checkbox" checked={error} onChange={e=>setError(e.target.checked)}/></label><main className={`subtitle-panel ${overlay ? 'custom-overlay' : ''} ${open ? "popover-open" : ""}`} style={style}>
     <header className="panel-header"><CaptureStatus input={input} status="idle" playing={false} platform="browser"/><div className="header-actions"><button className="button icon-button" aria-label="Show audio overlay"><AudioLines/></button><button className="button icon-button" aria-label="Open settings"><Settings2/></button></div></header>
     <div className="page-content"><LiveCaptions source={'An earlier sentence. '.repeat(80)+'The newest source text stays readable.'} translation={'这是之前的字幕。'.repeat(80)+'最后的字幕始终清晰可见。'} sourceLanguage={source} targetLanguage={target} size={size}/></div>
     {error && <div className="notice" role="alert">Stopped after silence to save usage. Press Start to resume.</div>}

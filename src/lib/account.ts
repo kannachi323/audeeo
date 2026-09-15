@@ -144,31 +144,18 @@ async function assertOwner(owner: string) {
     throw new Error("Sign in to the original account to sync this history.");
 }
 export const historyRemote: HistoryRemote = {
-  async write(owner, segment) {
+  async write(owner, segments, startedAt) {
+    if (!segments.length) return;
     await assertOwner(owner);
-    const session = await supabase!.from("sessions").upsert(
-      {
-        id: segment.sessionId,
-        owner_id: owner,
-        source_language: segment.sourceLanguage,
-        target_language: segment.targetLanguage,
-      },
-      { onConflict: "id", ignoreDuplicates: true },
-    );
-    if (session.error) throw session.error;
-    const { error } = await supabase!
-      .from("segments")
-      .upsert(toRow(owner, segment), { onConflict: "id" });
-    if (error) {
-      const { data } = await supabase!
-        .from("sessions")
-        .select("deleted_at")
-        .eq("id", segment.sessionId)
-        .eq("owner_id", owner)
-        .maybeSingle();
-      if (data?.deleted_at) return; // Tombstones intentionally reject offline resurrection.
-      throw error;
-    }
+    const sessionId = segments[0].sessionId;
+    if (segments.some(segment => segment.sessionId !== sessionId))
+      throw new Error("A history batch must belong to one session.");
+    const { error } = await supabase!.rpc("sync_caption_session", {
+      p_id: sessionId,
+      p_started_at: startedAt ?? null,
+      p_segments: segments.map(toRow),
+    });
+    if (error) throw error;
   },
   async delete(owner, id) {
     await assertOwner(owner);
@@ -178,11 +165,9 @@ export const historyRemote: HistoryRemote = {
     if (error) throw error;
   },
 };
-function toRow(owner: string, s: Segment) {
+function toRow(s: Segment) {
   return {
     id: s.id,
-    session_id: s.sessionId,
-    owner_id: owner,
     sequence: s.sequence,
     revision: s.revision,
     start_ms: s.startMs,
@@ -197,19 +182,24 @@ function toRow(owner: string, s: Segment) {
 export async function listHistory(owner: string) {
   await assertOwner(owner);
   const { data, error } = await supabase!
-    .from("sessions")
-    .select("id,started_at,source_language,target_language,segments(*),session_summaries(*)")
+    .from("caption_sessions")
+    .select("id,started_at,source_language,target_language,updated_at,segment_count,duration_ms,preview,summary_title")
     .eq("owner_id", owner)
     .is("deleted_at", null)
     .order("started_at", { ascending: false })
     .limit(100);
   if (error) throw error;
-  return (data ?? []).map((row:any)=>({
-    ...row,
-    session_summaries: Array.isArray(row.session_summaries)
-      ? row.session_summaries : row.session_summaries ? [row.session_summaries] : [],
-  })) as HistorySession[];
+  return (data ?? []).map((row:any)=>({ ...row, segments: [], session_summaries: [] })) as HistorySession[];
 }
+export async function getHistorySession(owner: string, id: string): Promise<HistorySession> {
+  await assertOwner(owner);
+  const { data, error } = await supabase!.from("caption_sessions")
+    .select("id,started_at,source_language,target_language,transcript,summary,preview,summary_title")
+    .eq("id", id).eq("owner_id", owner).is("deleted_at", null).single();
+  if (error) throw error;
+  return { ...data, segments: data.transcript ?? [], session_summaries: data.summary ? [data.summary] : [] };
+}
+
 export async function accountRequest<T = any>(
   path: string,
   method: string,
@@ -242,6 +232,8 @@ export type HistorySession = {
   started_at: string;
   source_language: string;
   target_language: string;
+  preview?: string;
+  summary_title?: string | null;
   segments: Array<Record<string, any>>;
   session_summaries: SavedSessionSummary[];
 };

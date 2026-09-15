@@ -15,6 +15,29 @@ function minutes(seconds: number) {
     : Math.round(value).toLocaleString();
 }
 
+export function SubscriptionOverview({ info, usage, busy }: {
+  info: SubscriptionInfo | null; usage: AccountUsage | null; busy: boolean;
+}) {
+  const active = usage?.active ?? info?.active;
+  return <>
+    <div className="subscription-heading">
+      <Sparkles aria-hidden="true"/><h2>Audeeo Pro</h2>
+      <span className="subscription-badge">{busy ? "Updating…" : info ? (active ? "Active" : "Free") : "Unavailable"}</span>
+    </div>
+    {(info?.expiresAt || usage) && <dl className="subscription-details">
+      {info?.expiresAt && <div>
+        <dt>{info.willRenew ? "Renews" : "Access until"}</dt>
+        <dd>{new Date(info.expiresAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</dd>
+      </div>}
+      {usage && <div>
+        <dt>{usage.unlimited ? "Usage · Unlimited plan" : "Usage"}</dt>
+        <dd>{minutes(usage.usedSeconds)}{!usage.unlimited && ` / ${minutes(usage.includedSeconds ?? 0)}`} <span>min</span></dd>
+        {!usage.unlimited && <small>{minutes(usage.remainingSeconds ?? 0)} min remaining</small>}
+      </div>}
+    </dl>}
+  </>;
+}
+
 export function Subscriptions({ session, platform, disabled, onBusy }: {
   session: Session; platform: string; disabled: boolean; onBusy: (busy: boolean) => void;
 }) {
@@ -42,14 +65,16 @@ export function Subscriptions({ session, platform, disabled, onBusy }: {
             const synced = await syncSubscriptionUsage(currentSession.current);
             if (mounted.current) {
               setUsage(synced);
-              setMessage(synced.active ? "Audeeo Pro is active." : "No active Audeeo Pro subscription found.");
+              if (action === "restore" && !synced.active) setMessage("No active subscription found.");
             }
           } catch {
             if (mounted.current) setMessage("Subscription status retrieved, but account allowance could not be synced. Refresh purchases to retry; do not purchase again.");
           }
       }
       // Customer status remains available even if the offering is misconfigured.
-      if (!action || action === "restore") {
+      if (result?.active) {
+        if (mounted.current) setPlans([]);
+      } else if (!action || action === "restore") {
         const available = await subscriptionPlans(account, platform);
         if (mounted.current) setPlans(available);
       }
@@ -74,13 +99,7 @@ export function Subscriptions({ session, platform, disabled, onBusy }: {
   const managementURL = subscriptionManagementURL(info);
   if (!supported) return <p>Subscriptions are available in Audeeo on the web and Apple devices.</p>;
   return <section className="subscription-settings" aria-label="Audeeo Pro subscription" aria-busy={busy}>
-    <div className="subscription-heading"><Sparkles aria-hidden="true"/><h2>Audeeo Pro</h2><span className="subscription-badge">{busy ? "Loading…" : info ? ((usage?.active ?? info.active) ? "Active" : "Free") : "Unavailable"}</span></div>
-    {info?.expiresAt && <small>{info.willRenew ? "Renews" : "Access until"} {new Date(info.expiresAt).toLocaleDateString()}</small>}
-    {usage && <small className="subscription-usage">
-      {usage.unlimited
-        ? `${minutes(usage.usedSeconds)} minutes used · unlimited account`
-        : `${minutes(usage.usedSeconds)} of ${minutes(usage.includedSeconds ?? 0)} minutes used · ${minutes(usage.remainingSeconds ?? 0)} remaining`}
-    </small>}
+    <SubscriptionOverview info={info} usage={usage} busy={busy}/>
     {!info?.active && <>
       {plans.map(plan => <Button key={plan.id} disabled={disabled || busy || !info} onClick={() => void run(plan.id)}>
         {plan.id === "yearly" ? "Yearly" : "Monthly"} · {plan.price} / {plan.id === "yearly" ? "year" : "month"}
@@ -88,10 +107,12 @@ export function Subscriptions({ session, platform, disabled, onBusy }: {
       {(!isTauri() || platform === "ios") && <Button disabled={disabled || busy || !info} onClick={() => void run("paywall")}>View subscription options</Button>}
 
     </>}
+    <div className="subscription-actions">
     <Button disabled={disabled || busy} onClick={() => void run("restore")} className="subscription-action"><RotateCcw aria-hidden="true"/>{isTauri() ? "Restore purchases" : "Refresh purchases"}</Button>
     {platform === "ios" && <Button disabled={disabled || busy} onClick={() => void run("manage")} className="subscription-action"><Settings2 aria-hidden="true"/>Manage subscription</Button>}
     {platform !== "ios" && managementURL && <a href={managementURL} target="_blank" rel="noopener noreferrer" className="subscription-action"><ExternalLink aria-hidden="true"/>Manage subscription</a>}
-    {platform !== "ios" && !managementURL && info?.active && <small>Manage your subscription using the link in your billing email or your store settings.</small>}
+    </div>
+    {platform !== "ios" && !managementURL && info?.active && !info.productID?.startsWith("rc_promo_") && <details className="subscription-help"><summary>Billing help</summary><p>Manage your subscription from your billing email or store settings.</p></details>}
     {message && <p className="subscription-message" role="status">{/RevenueCat|apple-native-build/.test(message) ? "Purchases are unavailable in this version." : message}</p>}
   </section>;
 }

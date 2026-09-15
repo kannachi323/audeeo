@@ -21,7 +21,21 @@ beforeEach(() => {
 });
 it("shows the server-authoritative usage counter", async () => {
   render(<Subscriptions session={session} platform="browser" disabled={false} onBusy={() => {}} />);
-  expect(await screen.findByText("1 of 5 minutes used · 4 remaining")).toBeTruthy();
+  expect(await screen.findByText("4 min remaining")).toBeTruthy();
+  expect(screen.getByText("1 / 5").closest("dd")?.textContent).toBe("1 / 5 min");
+});
+it("shows active unlimited access without loading purchase options or unrelated store errors", async () => {
+  mocks.info.mockResolvedValue({ active: true, expiresAt: "2027-09-15T20:01:52Z", productID: "rc_promo_audeeo_pro_custom", willRenew: false });
+  mocks.reconcile.mockResolvedValue({ active: true, unlimited: true, usedSeconds: 588 });
+  mocks.plans.mockRejectedValue(new Error("RevenueCat offerings unavailable"));
+  render(<Subscriptions session={session} platform="macos" disabled={false} onBusy={() => {}} />);
+  expect(await screen.findByText("Active")).toBeTruthy();
+  expect(screen.getByText("Usage · Unlimited plan")).toBeTruthy();
+  expect(screen.getByText("9.8").closest("dd")?.textContent).toBe("9.8 min");
+  expect(screen.getByText("Access until")).toBeTruthy();
+  expect(mocks.plans).not.toHaveBeenCalled();
+  expect(screen.queryByRole("status")).toBeNull();
+  expect(screen.queryByText("Billing help")).toBeNull();
 });
 afterEach(cleanup);
 it("retains purchased entitlement and directs refresh when server reconciliation fails", async () => {

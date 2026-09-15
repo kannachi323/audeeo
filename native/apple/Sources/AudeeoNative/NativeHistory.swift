@@ -20,7 +20,7 @@ final class NativeHistory {
     func write(_ entries: [[String: Any]]) throws {
         historyLock.lock(); defer { historyLock.unlock() }
         let data = try JSONSerialization.data(withJSONObject: entries)
-        guard data.count <= 2_000_000, entries.count <= 1000 else { throw NSError(domain: "Audeeo", code: 11, userInfo: [NSLocalizedDescriptionKey: "Offline history is full. Open Audeeo to sync before continuing."]) }
+        guard data.count <= 20_000_000, entries.count <= 20000 else { throw NSError(domain: "Audeeo", code: 11, userInfo: [NSLocalizedDescriptionKey: "Offline history is full. Open Audeeo to sync before continuing."]) }
         #if os(iOS)
         try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         #else

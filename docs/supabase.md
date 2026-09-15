@@ -8,11 +8,11 @@ The root `.env` supplies `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and the ser
 
 The Supabase redirect allowlist includes:
 
-- `audeeo://auth/callback` for Apple-platform authentication callbacks and Windows fallback links.
-- `http://127.0.0.1:*/auth/callback` for Windows' short-lived, random-port loopback callback.
+- `audeeo://auth/callback` for iOS authentication, email confirmation, and desktop fallback links.
+- `http://127.0.0.1:*/auth/callback` for macOS and Windows' short-lived, random-port loopback callback.
 - `http://localhost:1420` and `http://127.0.0.1:1420` for browser development.
 
-Add the deployed app's exact URL before shipping a browser build, and set `AUTH_REDIRECT_URL` to it. OAuth uses PKCE. macOS and iOS open `ASWebAuthenticationSession`; Windows opens the default system browser and listens on a random localhost port for up to five minutes. The loopback response gives the browser a real completion page, passes the one-time code to Audeeo, and avoids leaving Google on a loading page after a custom-protocol handoff. The registered `audeeo://` scheme remains available as a fallback and for Apple platforms. Native session storage uses the existing platform storage commands; browser sessions use the Supabase client storage. A session refresh/sign-in event starts history synchronization outside the Supabase auth callback lock.
+Add the deployed app's exact URL before shipping a browser build, and set `AUTH_REDIRECT_URL` to it. OAuth uses PKCE. iOS opens `ASWebAuthenticationSession`; macOS and Windows open the default system browser and listen on a random localhost port for up to five minutes. The loopback response gives the browser a real completion page, passes the one-time code to the running Audeeo instance, and avoids leaving Google on a loading page after a custom-protocol handoff. The registered `audeeo://` scheme remains available for email confirmation, fallback links, and iOS. Native session storage uses the existing platform storage commands; browser sessions use the Supabase client storage. A session refresh/sign-in event starts history synchronization outside the Supabase auth callback lock.
 
 ## Provider credentials
 
@@ -30,18 +30,20 @@ The HTTPS callback belongs in Google/Apple's consoles; `audeeo://auth/callback` 
 
 ## Postgres and RLS
 
-- `sessions` and `segments` are accessible only to their authenticated owner. Composite foreign keys prevent attaching text to another user's session.
-- `commercial_config`, `allowances`, `usage_ledger`, and `billing_events` have RLS enabled and no client grants. Only the relay's secret key can access them.
-- `commercial_config.monthly_seconds` is the included allowance granted to an active RevenueCat entitlement. The current migration initializes an otherwise-unconfigured plan to 600 minutes per monthly period while preserving an existing nonzero operator value. The two operator emails in the unlimited-usage migration are checked against verified Auth records and produce non-billable ledger rows.
-- Clients can insert/read sessions and maintain their own segments. Session deletion uses an owner-checked RPC that leaves a tombstone and removes text, preventing offline writes from recreating deleted history.
-- Privileged tombstone implementation lives in the unexposed `private` schema. Metering and entitlement RPCs are restricted to `service_role` and run as the invoker.
-- Deleting an Auth user cascades to their history, allowances, and usage ledger.
+See [Database schema](database-schema.md) for the table map, consolidation rationale, and coordinated release procedure.
 
-Apply all migrations in order with `supabase db push`. Use Supabase CLI 2.117.0 or newer for `config diff`/`config push`; the declared-property behavior preserves omitted remote settings. Always review `config diff` before pushing.
+- `caption_sessions` stores the transcript and summary as JSONB in one owner-scoped session row. The app saves locally while recording and uploads the completed session document once.
+- `billing_settings`, `billing_accounts`, `usage_reservations`, and `billing_webhook_events` have RLS enabled and no client grants. Only the relay's secret key can access them.
+- `billing_settings.monthly_seconds` is the included allowance granted to an active RevenueCat entitlement. The current migration initializes an otherwise-unconfigured plan to 600 minutes per monthly period while preserving an existing nonzero operator value. The two operator emails in the unlimited-usage migration are checked against verified Auth records and produce non-billable ledger rows.
+- Clients read their own sessions and upload completed documents through an owner-checked RPC; direct table writes are denied. Session deletion uses an owner-checked RPC that leaves a tombstone and removes text, preventing offline writes from recreating deleted history.
+- Privileged tombstone implementation lives in the unexposed `private` schema. Metering and entitlement RPCs are restricted to `service_role` and run as the invoker.
+- Deleting an Auth user cascades to their history, billing account, and usage reservations.
+
+Apply all migrations in order with `supabase db push` only after completing the coordinated release preparation described in the schema guide. The table-name migration breaks older desktop history clients. Use Supabase CLI 2.117.0 or newer for `config diff`/`config push`; the declared-property behavior preserves omitted remote settings. Always review `config diff` before pushing.
 
 ## Verification
 
-`npm run check` runs unit/UI tests, the app build, and relay typechecking. `npm run test:database` applies every migration to a disposable local Postgres cluster and tests owner isolation, forbidden writes and RPCs, concurrent usage accounting, tombstones, and account deletion.
+`npm run check` runs unit/UI tests, the app build, and relay typechecking. `npm run test:database` applies every migration to a disposable local Postgres cluster and tests document preservation, owner isolation, forbidden writes and RPCs, concurrent JSON merges and usage accounting, summary version checks, tombstones, and account deletion.
 
 Hosted integration checks exercised real user JWTs against the Data API and removed their temporary accounts and rows afterward. Full Google/Apple sign-in still requires configured provider credentials and a real provider-account test. Speech-provider and billing configuration are separate from authentication.
 

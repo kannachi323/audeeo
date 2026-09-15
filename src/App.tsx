@@ -65,6 +65,7 @@ import {
   listenForAuth,
   historyRemote,
   listHistory,
+  getHistorySession,
   relayURL,
   accountRequest,
   contextFromLink as generateContextFromLink,
@@ -180,6 +181,7 @@ export default function App() {
   const onboardingVisible = capsReady && authReady && desktop &&
     (!session || (!onboardingComplete && !rememberedAudeeoSetup));
   const panelExpanded = expanded || onboardingVisible;
+  const overlaySurface = overlay && !panelExpanded && !mobile;
   const inputMix = caps.inputMix ?? desktop;
   const applicationAudio = caps.applicationAudio ??
     ["macos", "windows", "android"].includes(caps.platform);
@@ -199,7 +201,12 @@ export default function App() {
     const timer=setTimeout(()=>void saveSessionContext(translationContext).catch(error=>setIssue(String(error))),250);
     return ()=>clearTimeout(timer);
   },[translationContext,contextReady]);
-  const sync = async () => {
+  const recordingHistory = useRef(false);
+  const historyStartedAt = useRef<string | undefined>(undefined);
+  const historySync = useRef<Promise<void> | undefined>(undefined);
+  const sync = () => {
+    if (historySync.current) return historySync.current;
+    const work = (async () => {
     try {
       const box = outbox.current;
       if (isTauri() && box) {
@@ -207,9 +214,10 @@ export default function App() {
           owner: box.owner,
         });
         for (const segment of JSON.parse(snapshots) as Segment[])
-          box.enqueue(segment);
+          box.enqueue(segment, recordingHistory.current ? historyStartedAt.current : undefined);
         await invoke("native_history_ack", { owner: box.owner, snapshots });
       }
+      if (!recordingHistory.current) box?.completeSessions();
       await box?.flush();
       setSyncState(
         outbox.current?.pending ? "Waiting to sync" : "History synced",
@@ -217,6 +225,9 @@ export default function App() {
     } catch {
       setSyncState("Saved on this device · waiting to sync");
     }
+    })();
+    historySync.current = work.finally(() => { historySync.current = undefined; });
+    return historySync.current;
   };
   useEffect(() => {
     // Remove the prototype's consumer credential storage without reading or exposing its value.
@@ -242,6 +253,8 @@ export default function App() {
       if (owner.current && owner.current !== next?.user.id) {
         void capture.current?.stop();
         void client.current?.finish();
+        recordingHistory.current = false;
+        outbox.current?.completeSessions();
         generation.current++;
         setSegments([]);
         setHistory([]);
@@ -256,7 +269,7 @@ export default function App() {
         dispatch({type:"playing",value:false});
       }
       outbox.current = next
-        ? new HistoryOutbox(
+        ? outbox.current?.owner === next.user.id ? outbox.current : new HistoryOutbox(
             next.user.id,
             localStorage,
             historyRemote,
@@ -346,21 +359,23 @@ export default function App() {
   useEffect(() => {
     if (desktop)
       void invoke("resize_main_window", {
-        height: onboardingVisible ? 680 : expanded ? 500 : 224,
+        height: onboardingVisible ? 800 : expanded ? 500 : 224,
+        ...(onboardingVisible ? { onboarding: true } : {}),
       }).catch(() =>
         setIssue("The window couldn’t resize. You can resize it from an edge."),
       );
   }, [expanded, onboardingVisible, desktop]);
   useEffect(() => {
-    if (panelExpanded || caps.platform === "browser") return;
+    if (!desktop || !overlaySurface) return;
     void invoke("resize_overlay_width", {width: appearance.panelWidth}).catch(() =>
       setIssue("The overlay width couldn’t be changed. You can still resize it from an edge."),
     );
-  }, [panelExpanded, appearance.panelWidth, caps.platform]);
+  }, [desktop, overlaySurface, appearance.panelWidth]);
   useEffect(() => {
     if (caps.platform !== 'macos' && caps.platform !== 'windows') return;
-    void invoke('set_window_mode', {overlay, clear: overlay && !panelExpanded && !opaque && (appearance.backgroundOpacity < 1 || appearance.overlayOpacity < 1)});
-  }, [overlay, panelExpanded, appearance.backgroundOpacity, appearance.overlayOpacity, opaque, caps.platform]);
+    void invoke('set_window_mode', {overlay: overlaySurface, clear: overlaySurface && !opaque && (appearance.backgroundOpacity < 1 || appearance.overlayOpacity < 1)})
+      .catch(() => setIssue("The window appearance couldn’t be changed. Please restart Audeeo."));
+  }, [overlaySurface, appearance.backgroundOpacity, appearance.overlayOpacity, opaque, caps.platform]);
   useEffect(() => {
     if (!translatedPlayback) { dispatch({type:'playing', value:false}); return; }
     if (!['macos','ios','android'].includes(caps.platform)) { browserPlayback.current?.setVolume(translatedMuted ? 0 : translatedVolume); return; }
@@ -417,7 +432,8 @@ export default function App() {
     finally {
       capture.current = undefined;
       try { await client.current?.finish(); }
-      finally { client.current = undefined; setStatus("idle"); if (mobile) dispatchMobile({type:"idle"}); }
+      finally {
+        recordingHistory.current = false; client.current = undefined; setStatus("idle"); if (mobile) dispatchMobile({type:"idle"}); }
     }
     await sync();
     })();
@@ -464,6 +480,8 @@ export default function App() {
     const run = ++generation.current;
     const shouldSave = save;
     const sessionOutbox = outbox.current;
+    recordingHistory.current = true;
+    historyStartedAt.current = new Date().toISOString();
     setIssue("");
     mobileFailed.current = false;
     setSegments([]);
@@ -483,8 +501,8 @@ export default function App() {
         });
         if (shouldSave && e.segment.final) {
           try {
-            sessionOutbox?.enqueue(e.segment);
-            void sync();
+            sessionOutbox?.enqueue(e.segment, historyStartedAt.current);
+            setSyncState("Saving on this device");
           } catch (err) {
             setIssue(String(err));
             void stop();
@@ -506,6 +524,7 @@ export default function App() {
         void capture.current?.stop();
       }
       if (e.type === "finished") {
+        recordingHistory.current = false;
         if (e.reason === "silence timeout") setIssue("Stopped after silence to save usage. Press Start to resume.");
         client.current = undefined;
         void capture.current?.stop();
@@ -572,7 +591,7 @@ export default function App() {
       finally {
         capture.current = undefined;
         try { await client.current?.finish(); }
-        finally { client.current = undefined; setStatus("idle"); }
+        finally { client.current = undefined; recordingHistory.current = false; setStatus("idle"); void sync(); }
       }
     }
   }
@@ -657,7 +676,21 @@ export default function App() {
       setIssue(String(e));
     }
   }
-  function exportHistory(row: any) {
+  async function openSessionSummary(row: HistorySession) {
+    if (!session) return;
+    const requestedOwner = session.user.id;
+    try {
+      const detail = await getHistorySession(requestedOwner, row.id);
+      if (owner.current === requestedOwner) setIntelligenceSession(detail);
+    } catch { setIssue("Session could not load. Reconnect and try again."); }
+  }
+  async function exportHistory(row: HistorySession) {
+    if (!session) return;
+    const requestedOwner = session.user.id;
+    try {
+      row = await getHistorySession(requestedOwner, row.id);
+    } catch { setIssue("Session could not load. Reconnect and try again."); return; }
+    if (owner.current !== requestedOwner) return;
     const content = [...(row.segments || [])]
       .sort((a, b) => a.sequence - b.sequence)
       .map((s) => `${s.source_text}\n${s.translated_text}`)
@@ -717,7 +750,7 @@ export default function App() {
   }
   const panelStyle = {
     "--overlay-width": `${appearance.panelWidth}px`,
-    ...(overlay && !expanded ? {
+    ...(overlaySurface ? {
     "--overlay-background": opaque ? "#191919" : colorWithOpacity(appearance.backgroundColor, appearance.backgroundOpacity),
     "--overlay-border": colorWithOpacity(appearance.borderColor, appearance.borderOpacity),
     "--overlay-border-width": `${appearance.borderWidth}px`,
@@ -733,7 +766,7 @@ export default function App() {
   } as CSSProperties;
   return (
     <>
-      {caps.platform === "windows" && resizeDirections.map(direction => (
+      {caps.platform === "windows" && overlaySurface && resizeDirections.map(direction => (
         <div
           key={direction}
           aria-hidden="true"
@@ -756,11 +789,11 @@ export default function App() {
         onProviders={()=>{setIntelligenceSession(null);openPage("providers");}}
         onSubscription={()=>{setIntelligenceSession(null);openPage("account");}}
         onSaved={(summary: SavedSessionSummary)=>{
-          setHistory(rows=>rows.map(row=>row.id===intelligenceSession.id?{...row,session_summaries:[summary]}:row));
-          setIntelligenceSession(row=>row?{...row,session_summaries:[summary]}:row);
+          setHistory(rows=>rows.map(row=>row.id===intelligenceSession.id?{...row,summary_title:summary.content.title,session_summaries:[summary]}:row));
+          setIntelligenceSession(row=>row?{...row,summary_title:summary.content.title,session_summaries:[summary]}:row);
         }}
       />}
-      {caps.platform === "windows" && (
+      {caps.platform === "windows" && overlaySurface && (
         <button
           type="button"
           className="window-drag-grip"
@@ -801,7 +834,7 @@ export default function App() {
     /> : (
     <main
       data-platform={caps.platform}
-      className={`subtitle-panel ${expanded ? "expanded" : ""} ${mobile ? "mobile-panel" : ""} ${caps.platform === "browser" ? "browser-panel" : ""} ${overlay && !expanded ? "custom-overlay" : ""} ${autoHide ? "auto-hide" : ""} ${audioOpen && !expanded ? "popover-open" : ""}`}
+      className={`subtitle-panel ${expanded ? "expanded" : ""} ${mobile ? "mobile-panel" : ""} ${caps.platform === "browser" ? "browser-panel" : ""} ${overlaySurface ? "custom-overlay" : ""} ${autoHide ? "auto-hide" : ""} ${audioOpen && !expanded ? "popover-open" : ""}`}
       style={panelStyle}
     >
       <header className={`panel-header${expanded ? " settings-header" : ""}`}>
@@ -835,7 +868,7 @@ export default function App() {
               className="icon-button"
               aria-label="Open settings"
               title="Caption settings"
-              aria-pressed={view === "settings"}
+              aria-pressed={expanded}
               onClick={() => openPage("settings")}
             >
               <Settings2 />
@@ -917,24 +950,22 @@ export default function App() {
             {history.map((row) => (
               <article key={row.id}>
                 <div>
-                  <strong>{row.session_summaries?.[0]?.content.title || new Date(row.started_at).toLocaleString()}</strong>
+                  <strong>{row.summary_title || row.session_summaries?.[0]?.content.title || new Date(row.started_at).toLocaleString()}</strong>
                   <p>
-                    {row.session_summaries?.[0] ? new Date(row.started_at).toLocaleString() : [...(row.segments || [])].sort(
-                      (a, b) => a.sequence - b.sequence,
-                    )[0]?.source_text || "Caption session"}
+                    {row.summary_title ? new Date(row.started_at).toLocaleString() : row.preview || "Caption session"}
                   </p>
                 </div>
                 <Button
                   aria-label="Summarize session"
-                  title={row.session_summaries?.length ? "Open session summary" : "Summarize session"}
-                  onClick={() => setIntelligenceSession(row)}
+                  title={row.summary_title ? "Open session summary" : "Summarize session"}
+                  onClick={() => void openSessionSummary(row)}
                 >
                   <Sparkles />
                 </Button>
                 <Button
                   aria-label="Export session"
                   title="Export text"
-                  onClick={() => exportHistory(row)}
+                  onClick={() => void exportHistory(row)}
                 >
                   <Download />
                 </Button>
@@ -965,7 +996,7 @@ export default function App() {
           <section className="account-section" aria-label="Account settings">
             {session ? (
               <>
-                <div className="account-profile"><UserRound aria-hidden="true"/><span>{session.user.email || "Signed in"}</span>
+                <div className="account-profile"><UserRound aria-hidden="true"/><div className="account-identity"><small>Signed in as</small><span>{session.user.email || "Audeeo account"}</span></div>
                 <Button
                   disabled={active || billingPending}
                   className="icon-button" aria-label="Sign out" title="Sign out"

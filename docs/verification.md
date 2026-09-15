@@ -14,7 +14,7 @@ These results concern the current Tauri/Swift/Worker implementation. The prototy
 - `npm run test:database`: the real migration passes in an isolated disposable PostgreSQL 14 cluster. Checks include owner RLS, composite-owner writes, service-only metering, concurrent reservations, duplicates, entitlement restoration/expiration, stale updates, deletion tombstones and account cascading. This is not a deployed Supabase integration test.
 - `cargo build --manifest-path src-tauri/Cargo.toml`: Mac executable links.
 - `cargo check --manifest-path src-tauri/Cargo.toml --target aarch64-apple-ios`: iOS Rust and Swift bridge checks pass against the installed SDK. This is not an iOS archive or device run.
-- `swift build --package-path native/apple --product AudeeoNative`: actual RevenueCat 5.89.0 purchase adapter compiles. A Mac executable also linked with this static archive through `AUDEEO_NATIVE_ARCHIVE`. Default macOS Tauri builds use the adapter's unavailable path until the SDK archive is supplied; iOS now builds and links RevenueCat automatically.
+- `swift build --package-path native/apple --product AudeeoNative`: actual RevenueCat 5.89.0 purchase adapter compiles. A Mac executable also linked with this static archive through `AUDEEO_NATIVE_ARCHIVE`. Default macOS and iOS Tauri builds now build and link RevenueCat automatically. A live read through the macOS Swift bridge returned the existing account entitlement as active with the expected expiry.
 - `npm run tauri -- build --debug --bundles app`: created a local development `Audeeo.app`. This is not a distribution-signed App Store archive.
 - `npm audit`: root application dependency audit reports zero known vulnerabilities after compatible transitive updates.
 

@@ -4,7 +4,7 @@ import { isTranslationTarget } from "../../../shared/languages";
 import { db, isDevelopmentUser, refreshEntitlement, type Env } from "./backend";
 
 type CanonicalSegment = { sequence: number; start_ms: number; end_ms: number; source_text: string };
-type CanonicalSession = { id: string; target_language: string; segments: CanonicalSegment[]; sourceHash: string; transcript: string };
+type CanonicalSession = { id: string; target_language: string; segments: CanonicalSegment[]; sourceHash: string; transcript: string; version: number; summary?: { content: unknown } };
 
 const summarySchema = {
   type: "object", additionalProperties: false,
@@ -41,14 +41,15 @@ async function hash(value: string) {
   return [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, "0")).join("");
 }
 async function canonical(env: Env, owner: string, id: string): Promise<CanonicalSession> {
-  const sessions = await db(env, `sessions?id=eq.${encodeURIComponent(id)}&owner_id=eq.${encodeURIComponent(owner)}&deleted_at=is.null&select=id,target_language`, undefined, "GET");
+  const sessions = await db(env, `caption_sessions?id=eq.${encodeURIComponent(id)}&owner_id=eq.${encodeURIComponent(owner)}&deleted_at=is.null&select=id,target_language,transcript,transcript_version,summary`, undefined, "GET");
   if (!sessions.length) throw Object.assign(new Error("Saved session not found."), { status: 404 });
-  const segments = await db(env, `segments?session_id=eq.${encodeURIComponent(id)}&owner_id=eq.${encodeURIComponent(owner)}&state=eq.complete&select=sequence,start_ms,end_ms,source_text&order=sequence.asc`, undefined, "GET") as CanonicalSegment[];
-  const clean = segments.filter(item => typeof item.source_text === "string" && item.source_text.trim());
+  const segments = (sessions[0].transcript ?? []) as Array<CanonicalSegment & {state:string;id:string}>;
+  const clean = segments.filter(item => item.state === "complete" && typeof item.source_text === "string" && item.source_text.trim())
+    .sort((a,b) => a.sequence - b.sequence || a.id.localeCompare(b.id));
   if (!clean.length) throw Object.assign(new Error("This session has no finalized transcript."), { status: 409 });
   const transcript = clean.map(item => `[${item.start_ms}ms] ${item.source_text.trim()}`).join("\n");
   if (transcript.length > 500_000) throw Object.assign(new Error("This transcript is too long to analyze."), { status: 413 });
-  return { id, target_language: sessions[0].target_language, segments: clean, transcript, sourceHash: await hash(transcript) };
+  return { id, target_language: sessions[0].target_language, segments: clean, transcript, sourceHash: await hash(transcript), version: sessions[0].transcript_version, summary: sessions[0].summary };
 }
 async function authorize(env: Env, owner: string, supplied: unknown) {
   if (typeof supplied === "string" && supplied.trim()) {
@@ -132,14 +133,11 @@ export async function generateSummary(env: Env, owner: string, id: string, body:
       session.segments[0].start_ms),
   }));
   content.quotations = exactQuotes(content.quotations, session.segments);
-  const current = await canonical(env, owner, id);
-  if (current.sourceHash !== session.sourceHash) throw Object.assign(new Error("The transcript changed while it was being analyzed. Generate again."), { status: 409 });
   const requestHash = await hash(`${session.sourceHash}\n${language}\n${custom}`);
-  const rows = await db(env, "session_summaries?on_conflict=session_id", {
-    session_id: id, owner_id: owner, language, content, source_hash: session.sourceHash,
-    request_hash: requestHash, model, updated_at: new Date().toISOString(),
-  }, "POST", "resolution=merge-duplicates,return=representation");
-  return rows[0];
+  return db(env, "rpc/save_caption_summary", {
+    p_owner: owner, p_id: id, p_version: session.version,
+    p_summary: { language, content, source_hash: session.sourceHash, request_hash: requestHash, model },
+  });
 }
 export async function answerQuestion(env: Env, owner: string, id: string, body: any) {
   const language = String(body?.language || "").trim().toLowerCase();
@@ -148,8 +146,7 @@ export async function answerQuestion(env: Env, owner: string, id: string, body: 
   if (!question || question.length > 2000) throw Object.assign(new Error("Enter a shorter question."), { status: 400 });
   const session = await canonical(env, owner, id);
   const key = await authorize(env, owner, body?.openaiApiKey);
-  const saved = await db(env, `session_summaries?session_id=eq.${encodeURIComponent(id)}&owner_id=eq.${encodeURIComponent(owner)}&select=content`, undefined, "GET");
-  const analysis = saved[0]?.content ? `\n\nPreviously saved analysis (supporting context only; transcript remains authoritative):\n${JSON.stringify(saved[0].content).slice(0, 50_000)}` : "";
+  const analysis = session.summary?.content ? `\n\nPreviously saved analysis (supporting context only; transcript remains authoritative):\n${JSON.stringify(session.summary.content).slice(0, 50_000)}` : "";
   const raw = await response(env, key, "session_answer", answerSchema,
     `Answer the question using only the supplied finalized transcript. Respond in language code ${language}. If the answer is absent, say so. Citations must be exact verbatim transcript substrings with timestamps; never fabricate or translate citation text.`,
     `Question: ${question}\n\nTranscript:\n${session.transcript}${analysis}`, 1600) as any;

@@ -6,20 +6,19 @@ vi.mock("../services/session-relay/src/backend", () => ({
 }));
 import { contextFromLink, generateSummary } from "../services/session-relay/src/intelligence";
 
-const transcriptRows = [{ sequence:0,start_ms:1200,end_ms:3000,source_text:"Faith seeks understanding." }];
+const transcriptRows = [{ id:"one",state:"complete",sequence:0,start_ms:1200,end_ms:3000,source_text:"Faith seeks understanding." }];
 const modelResult = { title:"Faith",recap:"A recap",keyPoints:["One"],notableTerms:[{term:"faith",explanation:"Trust"}],actionItems:[],chapters:[{title:"Opening",startMs:1200,summary:"Start"}],quotations:[{text:"Faith seeks understanding.",startMs:999},{text:"Invented quote",startMs:1}] };
 
 describe("session intelligence", () => {
   beforeEach(() => {
     vi.restoreAllMocks(); mocks.db.mockReset(); mocks.entitlement.mockReset(); mocks.development.mockReturnValue(false);
     mocks.db.mockImplementation(async (_env:any,path:string,_body?:any,method?:string) => {
-      if (path.startsWith("sessions?")) return [{id:"11111111-1111-4111-8111-111111111111",target_language:"en"}];
-      if (path.startsWith("segments?")) return transcriptRows;
-      if (path.startsWith("session_summaries?on_conflict")) return [{..._body,created_at:"now"}];
+      if (path.startsWith("caption_sessions?")) return [{id:"11111111-1111-4111-8111-111111111111",target_language:"en",transcript:transcriptRows,transcript_version:3}];
+      if (path === "rpc/save_caption_summary") return {..._body.p_summary,created_at:"now"};
       throw new Error(`unexpected db call ${method} ${path}`);
     });
   });
-  it("uses BYOK, disables OpenAI storage, validates exact quotations, and upserts the owned result", async () => {
+  it("uses BYOK, disables OpenAI storage, validates exact quotations, and saves the owned result against the source version", async () => {
     const fetch = vi.fn(async (_url:string,options:any) => ({ok:true,json:async()=>({output_text:JSON.stringify(modelResult)})}));
     vi.stubGlobal("fetch",fetch);
     const result = await generateSummary({SUMMARY_MODEL:"gpt-5.6-luna"} as any,"owner-a","11111111-1111-4111-8111-111111111111",{language:"en",instructions:"",openaiApiKey:"sk-user"});
@@ -28,7 +27,7 @@ describe("session intelligence", () => {
     expect(fetch.mock.calls[0][1].headers.Authorization).toBe("Bearer sk-user");
     expect(mocks.entitlement).not.toHaveBeenCalled();
     expect(result.content.quotations).toEqual([{text:"Faith seeks understanding.",startMs:1200}]);
-    expect(mocks.db).toHaveBeenCalledWith(expect.anything(),"session_summaries?on_conflict=session_id",expect.objectContaining({owner_id:"owner-a"}),"POST","resolution=merge-duplicates,return=representation");
+    expect(mocks.db).toHaveBeenCalledWith(expect.anything(),"rpc/save_caption_summary",expect.objectContaining({p_owner:"owner-a",p_version:3}));
     vi.unstubAllGlobals();
   });
   it("refuses server-key spending after a failed fresh entitlement check", async () => {

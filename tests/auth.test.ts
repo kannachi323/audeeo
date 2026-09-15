@@ -4,6 +4,8 @@ const auth = vi.hoisted(() => ({
   pending: [] as string[],
   exchange: vi.fn(),
   oauth: vi.fn(),
+  password: vi.fn(),
+  signup: vi.fn(),
 }));
 vi.mock("../src/lib/config", () => ({
   config: {
@@ -35,6 +37,8 @@ vi.mock("@supabase/supabase-js", () => ({
     auth: {
       exchangeCodeForSession: auth.exchange,
       signInWithOAuth: auth.oauth,
+      signInWithPassword: auth.password,
+      signUp: auth.signup,
     },
   }),
 }));
@@ -43,6 +47,8 @@ afterEach(() => {
   vi.resetModules();
   auth.exchange.mockReset();
   auth.oauth.mockReset();
+  auth.password.mockReset();
+  auth.signup.mockReset();
   auth.pending = [];
 });
 it.each(["google", "apple"] as const)(
@@ -68,6 +74,27 @@ it.each(["google", "apple"] as const)(
     });
   },
 );
+it("signs in with a normalized email and password", async () => {
+  const { signInWithEmailPassword } = await import("../src/lib/account");
+  auth.password.mockResolvedValue({ error: null });
+  await signInWithEmailPassword(" person@example.test ", "password123");
+  expect(auth.password).toHaveBeenCalledWith({
+    email: "person@example.test",
+    password: "password123",
+  });
+});
+it("creates a password account with a durable native confirmation callback", async () => {
+  const { signUpWithEmailPassword } = await import("../src/lib/account");
+  auth.signup.mockResolvedValue({ data: { session: null }, error: null });
+  await expect(signUpWithEmailPassword(" person@example.test ", "password123")).resolves.toBe(true);
+  expect(auth.signup).toHaveBeenCalledWith({
+    email: "person@example.test",
+    password: "password123",
+    options: {
+      emailRedirectTo: "audeeo://auth/callback",
+    },
+  });
+});
 it("finishes pending native sign-in on cancellation and rejects unrelated callback URLs", async () => {
   const { listenForAuth } = await import("../src/lib/account");
   const complete = vi.fn();

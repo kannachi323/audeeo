@@ -21,7 +21,7 @@ beforeEach(()=>{
 });
 afterEach(()=>{vi.clearAllTimers();vi.useRealTimers();vi.unstubAllGlobals()});
 async function start(target='en', silence?: unknown) {
-  await relay.fetch(new Request('https://relay.test/v1/realtime',{headers:{Upgrade:'websocket'}}),{OPENAI_API_KEY:'fake',SUPABASE_SECRET_KEY:'fake'} as any);
+  await relay.fetch(new Request('https://relay.test/v1/realtime',{headers:{Upgrade:'websocket'}}),{CAPTION_PROVIDER:'openai',OPENAI_API_KEY:'fake',SUPABASE_SECRET_KEY:'fake'} as any);
   const connecting=downstream.message({type:'start',accessToken:'fake',sourceLanguage:'en',targetLanguage:target,silence});
   await vi.advanceTimersByTimeAsync(0);await connecting;
 }

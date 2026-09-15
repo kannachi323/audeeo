@@ -1,0 +1,19 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "audeeo-web",
+  "compatibility_date": "2026-09-14",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  },
+  "routes": [
+    {
+      "pattern": "audeeo.app/*",
+      "zone_name": "audeeo.app"
+    },
+    {
+      "pattern": "www.audeeo.app/*",
+      "zone_name": "audeeo.app"
+    }
+  ]
+}

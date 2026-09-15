@@ -1,6 +1,6 @@
 # Supabase integration
 
-Audeeo uses project `etbpmzwqqihnydlmibvd` with Google and Apple sign-in. Email/password, email OTP, and anonymous sign-in are disabled. No SMTP provider is required for this flow.
+Audeeo uses project `etbpmzwqqihnydlmibvd` with Google, Apple, and email/password sign-in. Email confirmation is required for new password accounts; magic-link/OTP and anonymous sign-in are not used. Enable the Email provider, email signups, and Confirm Email in the hosted Supabase dashboard. Configure production SMTP before release.
 
 ## App configuration
 

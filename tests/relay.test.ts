@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import relay from "../services/session-relay/src/index";
-import { db, refreshEntitlement, allowancePeriod, isDevelopmentUser } from "../services/session-relay/src/backend";
+import { accountUsage, db, refreshEntitlement, allowancePeriod, isDevelopmentUser } from "../services/session-relay/src/backend";
 const env: any = {
   ALLOWED_ORIGINS: "http://localhost:1420",
   SUPABASE_URL: "https://example.supabase.co",
@@ -64,18 +64,35 @@ describe("relay authorization", () => {
       "fetch",
       vi.fn(async (url, options) => {
         calls.push({ url, options });
-        return String(url).includes("revenuecat")
-          ? Response.json({
+        if (String(url).includes("revenuecat")) return Response.json({
               subscriber: {
+                original_app_user_id: "rc-owner",
                 entitlements: {
                   audeeo_pro: {
                     expires_date: "2099-01-01T00:00:00Z",
                     purchase_date: "2026-09-01T00:00:00Z",
+                    product_identifier: "audeeo_yearly",
+                  },
+                },
+                subscriptions: {
+                  audeeo_yearly: {
+                    store_transaction_id: "sub_123",
+                    store: "stripe",
                   },
                 },
               },
-            })
-          : Response.json(null);
+            });
+        if (String(url).includes("rpc/account_usage")) return Response.json({
+          active: true,
+          unlimited: false,
+          usedSeconds: 15,
+          includedSeconds: 36000,
+          remainingSeconds: 35985,
+          periodStart: "2026-09-01T00:00:00Z",
+          periodEnd: "2026-10-01T00:00:00Z",
+          subscription: { id: "sub_123" },
+        });
+        return Response.json(null);
       }),
     );
     const r = await refreshEntitlement(env, "owner");
@@ -83,8 +100,84 @@ describe("relay authorization", () => {
     const body = JSON.parse(calls[1].options.body);
     expect(body.p_owner).toBe("owner");
     expect(body.p_paid).toBe(true);
+    expect(body.p_revenuecat_customer_id).toBe("rc-owner");
+    expect(body.p_subscription_id).toBe("sub_123");
+    expect(body.p_product_id).toBe("audeeo_yearly");
+    expect(body.p_store).toBe("stripe");
     expect(body.p_start).toBe(allowancePeriod("2026-09-01T00:00:00Z", "2099-01-01T00:00:00Z").start);
+    expect(r.usedSeconds).toBe(15);
   });
+
+  it("does not grant paid usage when RevenueCat omits the store subscription id", async () => {
+    const fetch = vi.fn(async () => Response.json({
+      subscriber: {
+        entitlements: { audeeo_pro: {
+          expires_date: "2099-01-01T00:00:00Z",
+          purchase_date: "2026-09-01T00:00:00Z",
+          product_identifier: "audeeo_yearly",
+        } },
+        subscriptions: { audeeo_yearly: { store: "stripe" } },
+      },
+    }));
+    vi.stubGlobal("fetch", fetch);
+    await expect(refreshEntitlement(env, "owner")).rejects.toThrow("without a subscription identifier");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("persists RevenueCat's transaction id for a promotional yearly grant", async () => {
+    const calls: any[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url, options) => {
+      calls.push({ url, options });
+      if (String(url).includes("revenuecat")) return Response.json({ subscriber: {
+        original_app_user_id: "owner",
+        entitlements: { audeeo_pro: {
+          expires_date: "2099-01-01T00:00:00Z",
+          purchase_date: "2026-09-15T00:00:00Z",
+          product_identifier: "rc_promo_yearly",
+        } },
+        subscriptions: {},
+        non_subscriptions: { rc_promo_yearly: [{
+          id: "promo_transaction_123",
+          store: "promotional",
+          purchase_date: "2026-09-15T00:00:00Z",
+        }] },
+      } });
+      if (String(url).includes("rpc/account_usage")) return Response.json({
+        active: true, unlimited: false, usedSeconds: 0, includedSeconds: 36000,
+        remainingSeconds: 36000, periodStart: null, periodEnd: null, subscription: null,
+      });
+      return Response.json(null);
+    }));
+    await refreshEntitlement(env, "owner");
+    const body = JSON.parse(calls[1].options.body);
+    expect(body.p_subscription_id).toBe("promo_transaction_123");
+    expect(body.p_product_id).toBe("rc_promo_yearly");
+    expect(body.p_store).toBe("promotional");
+    expect(body.p_paid).toBe(true);
+  });
+});
+
+it("loads usage only through the service-side account RPC", async () => {
+  const fetch = vi.fn(async () => Response.json({ usedSeconds: 45 }));
+  vi.stubGlobal("fetch", fetch);
+  await expect(accountUsage(env, "owner")).resolves.toMatchObject({ usedSeconds: 45 });
+  expect(fetch.mock.calls[0][0]).toBe(`${env.SUPABASE_URL}/rest/v1/rpc/account_usage`);
+  expect(JSON.parse(String(fetch.mock.calls[0][1]?.body))).toEqual({ p_owner: "owner" });
+});
+
+it("returns only the signed-in user's account usage", async () => {
+  const owner = "00000000-0000-4000-8000-000000000001";
+  const token = `header.${btoa(JSON.stringify({ sub: owner, exp: Math.floor(Date.now() / 1000) + 3600 }))}.signature`;
+  const fetch = vi.fn(async (url: unknown) => String(url).includes("/auth/v1/user")
+    ? Response.json({ id: owner })
+    : Response.json({ active: true, usedSeconds: 75, remainingSeconds: 125 }));
+  vi.stubGlobal("fetch", fetch);
+  const response = await relay.fetch(new Request("https://relay.test/v1/account/usage", {
+    headers: { Authorization: `Bearer ${token}` },
+  }), env);
+  expect(response.status).toBe(200);
+  await expect(response.json()).resolves.toMatchObject({ usedSeconds: 75 });
+  expect(JSON.parse(String(fetch.mock.calls[1][1]?.body))).toEqual({ p_owner: owner });
 });
 
 it("uses the secret API key without bearer authorization for database requests", async () => {

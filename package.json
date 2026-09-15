@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --port 1420",
+    "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
@@ -17,7 +17,8 @@
     "check": "npm run test && npm run build && npm --prefix services/session-relay run typecheck",
     "benchmark": "node --env-file=.env --experimental-strip-types scripts/benchmark.ts",
     "test:database": "python3 scripts/test-database.py",
-    "test:soniox": "tsx scripts/check-soniox-live.mjs"
+    "test:soniox": "tsx scripts/check-soniox-live.mjs",
+    "benchmark:soniox-context": "tsx scripts/benchmark-soniox-context.mjs"
   },
   "dependencies": {
     "@radix-ui/react-select": "^2.3.7",

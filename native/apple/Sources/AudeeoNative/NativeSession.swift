@@ -4,10 +4,11 @@ import AVKit
 import Foundation
 import UIKit
 
-/// Native microphone, relay networking, and PiP continue independently of React execution.
-@available(iOS 15.0, *)
+/// Native capture, relay networking, and PiP continue independently of React execution.
+@available(iOS 27.0, *)
 final class NativeCaptionSession {
     let mic = MicrophoneCapture()
+    let screenAudio = ScreenAudioCapture()
     let pip = SubtitlePiP()
     var socket: URLSessionWebSocketTask?
     var onEvent: ((String) -> Void)?
@@ -16,13 +17,28 @@ final class NativeCaptionSession {
     var translation = ""
     var history: NativeHistory?
     var generation = 0
+    var input = "microphone"
     var observers: [NSObjectProtocol] = []
-    func start(endpoint: URL, token: String, source: String, target: String, silenceTimeout: Int32, silenceThreshold: Int32) {
+    func start(endpoint: URL, token: String, source: String, target: String, silenceTimeout: Int32, silenceThreshold: Int32, provider: String, providerKey: String, context: String, input: String) {
         translatedPlayback.reset()
         generation += 1
         let run = generation
         stopping = false
         translation = ""
+        self.input = input
+        if input == "system" {
+            screenAudio.onAudio = { [weak self] data in self?.sendAudio(data, run: run) }
+            screenAudio.onStarted = { [weak self] in
+                self?.connectRelay(endpoint: endpoint, token: token, source: source, target: target, silenceTimeout: silenceTimeout, silenceThreshold: silenceThreshold, provider: provider, providerKey: providerKey, context: context, run: run)
+            }
+            screenAudio.onError = { [weak self] message in self?.fail(message) }
+            screenAudio.presentPicker()
+            return
+        }
+        connectRelay(endpoint: endpoint, token: token, source: source, target: target, silenceTimeout: silenceTimeout, silenceThreshold: silenceThreshold, provider: provider, providerKey: providerKey, context: context, run: run)
+    }
+    func connectRelay(endpoint: URL, token: String, source: String, target: String, silenceTimeout: Int32, silenceThreshold: Int32, provider: String, providerKey: String, context: String, run: Int) {
+        guard run == generation, !stopping else { return }
         var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)!
         components.scheme = endpoint.scheme == "https" ? "wss" : "ws"
         components.path = "/v1/realtime"
@@ -30,7 +46,12 @@ final class NativeCaptionSession {
         let task = URLSession.shared.webSocketTask(with: url)
         socket = task
         task.resume()
-        let start: [String: Any] = ["type": "start", "accessToken": token, "sourceLanguage": source, "targetLanguage": target, "silence": ["timeoutSeconds": silenceTimeout, "thresholdDbfs": silenceThreshold]]
+        var start: [String: Any] = ["type": "start", "accessToken": token, "sourceLanguage": source, "targetLanguage": target, "silence": ["timeoutSeconds": silenceTimeout, "thresholdDbfs": silenceThreshold]]
+        if !provider.isEmpty && !providerKey.isEmpty {
+            start["provider"] = provider
+            start["providerKey"] = providerKey
+        }
+        if let contextData = context.data(using: .utf8), let value = try? JSONSerialization.jsonObject(with: contextData), !(value is NSNull) { start["context"] = value }
         guard let data = try? JSONSerialization.data(withJSONObject: start), let text = String(data: data, encoding: .utf8) else { return }
         task.send(.string(text)) { [weak self] error in
             if error != nil { DispatchQueue.main.async { self?.fail("Could not connect. Check your network and retry.") } }
@@ -69,14 +90,8 @@ final class NativeCaptionSession {
                     if event["type"] as? String != "ready" { self.onEvent?(text) }
                     if event["type"] as? String == "ready" {
                         if let root = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).flatMap(\.windows).first(where: \.isKeyWindow)?.rootViewController?.view { self.pip.attach(to: root) }
-                        AVCaptureDevice.requestAccess(for: .audio) { granted in
-                            DispatchQueue.main.async {
-                                guard run == self.generation, !self.stopping else { return }
-                                guard granted else { self.fail("Allow microphone access in Settings to start captions."); return }
-                                do { try self.mic.start { [weak self] data in DispatchQueue.main.async { self?.sendAudio(data, run: run) } }; self.onEvent?(text) }
-                                catch { self.fail(error.localizedDescription) }
-                            }
-                        }
+                        if self.input == "system" { self.onEvent?(text) }
+                        else { self.beginMicrophone(readyEvent: text, run: run) }
                     }
                     if event["type"] as? String == "segment", let segment = event["segment"] as? [String: Any] {
                         if let text = segment["translatedText"] as? String, !text.isEmpty { self.translation = text }
@@ -88,11 +103,24 @@ final class NativeCaptionSession {
             }
         }
     }
-    func sendAudio(_ data: Data, run: Int) {
+    func beginMicrophone(readyEvent: String, run: Int) {
         guard run == generation, !stopping else { return }
+        AVCaptureDevice.requestAccess(for: .audio) { granted in
+            DispatchQueue.main.async {
+                guard run == self.generation, !self.stopping else { return }
+                guard granted else { self.fail("Allow microphone access in Settings to start captions."); return }
+                do {
+                    try self.mic.start { [weak self] data in DispatchQueue.main.async { self?.sendAudio(data, run: run) } }
+                    self.onEvent?(readyEvent)
+                } catch { self.fail(error.localizedDescription) }
+            }
+        }
+    }
+    func sendAudio(_ data: Data, run: Int) {
+        guard run == generation, !stopping, let socket else { return }
         guard pendingBytes + data.count <= 128000 else { fail("Network is behind. Capture stopped; reconnect to continue."); return }
         pendingBytes += data.count
-        socket?.send(.data(data)) { [weak self] error in
+        socket.send(.data(data)) { [weak self] error in
             DispatchQueue.main.async {
                 guard let self, self.generation == run else { return }
                 self.pendingBytes -= data.count
@@ -102,7 +130,12 @@ final class NativeCaptionSession {
     }
     func stop() {
         guard !stopping else { return }
-        stopping = true; mic.stop(deactivateSession: false)
+        stopping = true; mic.stop(deactivateSession: false); screenAudio.stop()
+        guard socket != nil else {
+            onEvent?("{\"type\":\"finished\",\"reason\":\"Native session stopped\"}")
+            dispose()
+            return
+        }
         socket?.send(.string("{\"type\":\"stop\"}")) { _ in }
         let run = generation
         DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in
@@ -117,7 +150,7 @@ final class NativeCaptionSession {
         dispose()
     }
     func dispose() {
-        generation += 1; stopping = true; mic.stop(deactivateSession: false); pip.stop(); translatedPlayback.finishSession()
+        generation += 1; stopping = true; mic.stop(deactivateSession: false); screenAudio.stop(); pip.stop(); translatedPlayback.finishSession()
         observers.forEach { NotificationCenter.default.removeObserver($0) }; observers = []
         socket?.cancel(with: .normalClosure, reason: nil); socket = nil; pendingBytes = 0
     }
@@ -125,9 +158,9 @@ final class NativeCaptionSession {
 private var nativeSession: NativeCaptionSession?
 public typealias NativeEventCallback = @convention(c) (UnsafePointer<CChar>) -> Void
 @_cdecl("audeeo_native_session_start")
-public func nativeSessionStart(_ endpoint: UnsafePointer<CChar>, _ token: UnsafePointer<CChar>, _ source: UnsafePointer<CChar>, _ target: UnsafePointer<CChar>, _ owner: UnsafePointer<CChar>, _ save: Bool, _ silenceTimeout: Int32, _ silenceThreshold: Int32, _ callback: @escaping NativeEventCallback) {
+public func nativeSessionStart(_ endpoint: UnsafePointer<CChar>, _ token: UnsafePointer<CChar>, _ source: UnsafePointer<CChar>, _ target: UnsafePointer<CChar>, _ owner: UnsafePointer<CChar>, _ save: Bool, _ silenceTimeout: Int32, _ silenceThreshold: Int32, _ provider: UnsafePointer<CChar>, _ providerKey: UnsafePointer<CChar>, _ context: UnsafePointer<CChar>, _ input: UnsafePointer<CChar>, _ callback: @escaping NativeEventCallback) {
     let endpoint = String(cString: endpoint), token = String(cString: token), source = String(cString: source), target = String(cString: target)
-    let owner = String(cString: owner)
+    let owner = String(cString: owner), provider = String(cString: provider), providerKey = String(cString: providerKey), context = String(cString: context), input = String(cString: input)
     DispatchQueue.main.async {
         nativeSession?.dispose()
         guard let url = URL(string: endpoint), ["https", "http"].contains(url.scheme ?? "") else { return }
@@ -138,7 +171,7 @@ public func nativeSessionStart(_ endpoint: UnsafePointer<CChar>, _ token: Unsafe
             catch { session.fail("History storage is unavailable. Retry or choose don’t save."); return }
         }
         session.pip.onError = { [weak session] message in session?.fail(message) }
-        session.start(endpoint: url, token: token, source: source, target: target, silenceTimeout: silenceTimeout, silenceThreshold: silenceThreshold)
+        session.start(endpoint: url, token: token, source: source, target: target, silenceTimeout: silenceTimeout, silenceThreshold: silenceThreshold, provider: provider, providerKey: providerKey, context: context, input: input)
     }
 }
 @_cdecl("audeeo_native_session_stop")

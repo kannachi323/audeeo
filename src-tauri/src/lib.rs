@@ -1,4 +1,7 @@
 mod credentials;
+mod context_storage;
+#[cfg(target_os = "android")]
+mod android_mobile;
 #[cfg(target_os = "macos")]
 mod file_credentials;
 #[cfg(target_os = "windows")]
@@ -33,6 +36,7 @@ fn handle_oauth_callback(app: &tauri::AppHandle, url: &tauri::Url) {
         return;
     }
     queue_oauth_callback(app, url.to_string());
+    #[cfg(desktop)]
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
@@ -177,6 +181,9 @@ struct PlatformCapabilities {
     global_overlay: bool,
     native_pip: bool,
     native_session: bool,
+    application_audio: bool,
+    input_mix: bool,
+    translated_playback: bool,
 }
 
 #[tauri::command]
@@ -185,18 +192,20 @@ fn platform_capabilities() -> PlatformCapabilities {
         platform: std::env::consts::OS,
         microphone: cfg!(any(target_os = "macos", target_os = "ios", target_os = "windows")),
         local_video: false,
-        system_audio: cfg!(any(target_os = "macos", target_os = "windows")),
-        global_overlay: cfg!(target_os = "macos"),
-        native_pip: cfg!(target_os = "ios"),
-        native_session: cfg!(target_os = "ios"),
+        system_audio: cfg!(any(target_os = "macos", target_os = "windows", target_os = "android", target_os = "ios")),
+        global_overlay: cfg!(any(target_os = "macos", target_os = "android")),
+        native_pip: cfg!(any(target_os = "ios", target_os = "android")),
+        native_session: cfg!(any(target_os = "ios", target_os = "android")),
+        application_audio: cfg!(any(target_os = "macos", target_os = "windows", target_os = "android")),
+        input_mix: cfg!(any(target_os = "macos", target_os = "windows")),
+        translated_playback: cfg!(any(target_os = "macos", target_os = "ios", target_os = "windows", target_os = "android")),
     }
 }
 #[cfg(target_os = "macos")]
 extern "C" {
-    fn audeeo_system_start(callback: extern "C" fn(*const u8, usize, i32));
+    fn audeeo_system_start(source: *const std::ffi::c_char, callback: extern "C" fn(*const u8, usize, i32));
     fn audeeo_system_stop();
     fn audeeo_capture_sources() -> *mut std::ffi::c_char;
-    fn audeeo_source_volume(volume: f64);
     fn audeeo_window_mode(window: *mut std::ffi::c_void, overlay: bool, clear: bool);
     fn audeeo_show_controls_popover(main: *mut std::ffi::c_void, host: *mut std::ffi::c_void, x: f64, y: f64, width: f64, height: f64, content_height: f64, presentation: i64, closed: extern "C" fn(i64));
     fn audeeo_close_controls_popover();
@@ -206,7 +215,12 @@ extern "C" {
     fn audeeo_microphone_stop();
 }
 #[tauri::command]
-async fn capture_sources() -> Result<serde_json::Value, String> {
+async fn capture_sources(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "android")]
+    return app.state::<android_mobile::AndroidMobile<tauri::Wry>>().capture_sources();
+    #[cfg(not(target_os = "android"))]
+    let _ = app;
+    #[cfg(not(target_os = "android"))]
     // CoreAudio metadata queries can block; never run them in the UI IPC handler.
     tauri::async_runtime::spawn_blocking(read_capture_sources)
         .await
@@ -227,8 +241,33 @@ fn read_capture_sources() -> Result<serde_json::Value, String> {
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     Ok(serde_json::json!({"microphone":"Microphone", "applications":[]}))
 }
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
 static APP: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_mattdev727_audeeo_PlaybackCaptureService_nativeOnEvent(
+    mut environment: jni::JNIEnv,
+    _class: jni::objects::JClass,
+    message: jni::objects::JString,
+) {
+    let Ok(message) = environment.get_string(&message) else { return; };
+    if let Some(app) = APP.get() {
+        let _ = app.emit("native-session-event", message.to_string_lossy().as_ref());
+    }
+}
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_mattdev727_audeeo_MainActivity_nativeOnOAuth(
+    mut environment: jni::JNIEnv,
+    _class: jni::objects::JClass,
+    url: jni::objects::JString,
+) {
+    let Ok(url) = environment.get_string(&url) else { return; };
+    let Ok(url) = tauri::Url::parse(url.to_string_lossy().as_ref()) else { return; };
+    if let Some(app) = APP.get() {
+        handle_oauth_callback(app, &url);
+    }
+}
 #[cfg(target_os = "macos")]
 extern "C" fn microphone_data(bytes: *const u8, len: usize, error: i32) {
     if let Some(app) = APP.get() {
@@ -332,7 +371,14 @@ fn native_history_ack(owner: String, snapshots: String) -> Result<(), String> {
     Ok(())
 }
 #[tauri::command]
-async fn auth_storage_get(key: String) -> Result<Option<String>, String> {
+async fn auth_storage_get(app: tauri::AppHandle, key: String) -> Result<Option<String>, String> {
+    #[cfg(target_os = "android")]
+    {
+        return app.state::<android_mobile::AndroidMobile<tauri::Wry>>().secret_get(key);
+    }
+    #[cfg(not(target_os = "android"))]
+    let _ = app;
+    #[cfg(not(target_os = "android"))]
     tauri::async_runtime::spawn_blocking(move || {
         credential_cache().lock().map_err(|_| "Credential storage unavailable".to_owned())?
             .get(&key, || read_credential(&key))
@@ -381,7 +427,14 @@ fn read_credential(key: &str) -> Result<Option<String>, String> {
     }
 }
 #[tauri::command]
-async fn auth_storage_set(key: String, value: Option<String>) -> Result<(), String> {
+async fn auth_storage_set(app: tauri::AppHandle, key: String, value: Option<String>) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        return app.state::<android_mobile::AndroidMobile<tauri::Wry>>().secret_set(key, value);
+    }
+    #[cfg(not(target_os = "android"))]
+    let _ = app;
+    #[cfg(not(target_os = "android"))]
     tauri::async_runtime::spawn_blocking(move || {
         credential_cache().lock().map_err(|_| "Credential storage unavailable".to_owned())?
             .set(&key, value.clone(), || write_credential(&key, value))
@@ -477,11 +530,44 @@ fn begin_oauth(app: tauri::AppHandle, url: String) -> Result<(), String> {
             .open_url(url, None::<&str>)
             .map_err(|_| "Couldn’t open the default browser. Check Windows default-app settings and try again.".into())
     }
-    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
+    #[cfg(target_os = "android")]
+    {
+        app.state::<android_mobile::AndroidMobile<tauri::Wry>>().begin_oauth(url)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows", target_os = "android")))]
     {
         let _ = (app, url);
         Err("Native sign-in is unavailable on this platform.".into())
     }
+}
+#[tauri::command]
+async fn context_storage_get(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    #[cfg(target_os = "android")]
+    {
+        return app.state::<android_mobile::AndroidMobile<tauri::Wry>>()
+            .secret_get("__audeeo_context".into());
+    }
+    #[cfg(not(target_os = "android"))]
+    let _ = app;
+    #[cfg(not(target_os = "android"))]
+    tauri::async_runtime::spawn_blocking(context_storage::get).await
+        .map_err(|_| "Context storage worker unavailable".to_owned())?
+}
+#[tauri::command]
+async fn context_storage_set(app: tauri::AppHandle, value: String) -> Result<(), String> {
+    if value.len() > 65_536 || serde_json::from_str::<serde_json::Value>(&value).is_err() {
+        return Err("Context storage received invalid data".into());
+    }
+    #[cfg(target_os = "android")]
+    {
+        return app.state::<android_mobile::AndroidMobile<tauri::Wry>>()
+            .secret_set("__audeeo_context".into(), Some(value));
+    }
+    #[cfg(not(target_os = "android"))]
+    let _ = app;
+    #[cfg(not(target_os = "android"))]
+    tauri::async_runtime::spawn_blocking(move || context_storage::set(&value)).await
+        .map_err(|_| "Context storage worker unavailable".to_owned())?
 }
 #[cfg(target_os = "ios")]
 extern "C" {
@@ -494,6 +580,10 @@ extern "C" {
         save: bool,
         silence_timeout: i32,
         silence_threshold: i32,
+        provider: *const std::ffi::c_char,
+        provider_key: *const std::ffi::c_char,
+        context: *const std::ffi::c_char,
+        input: *const std::ffi::c_char,
         callback: extern "C" fn(*const std::ffi::c_char),
     );
     fn audeeo_native_session_stop();
@@ -512,6 +602,7 @@ extern "C" fn native_event(event: *const std::ffi::c_char) {
 }
 #[tauri::command]
 fn start_native_session(
+    app: tauri::AppHandle,
     endpoint: String,
     token: String,
     source: String,
@@ -520,10 +611,16 @@ fn start_native_session(
     save: bool,
     silence_timeout: i32,
     silence_threshold: i32,
+    provider: String,
+    provider_key: String,
+    context: String,
+    input: String,
+    capture_source_id: String,
 ) -> Result<(), String> {
     #[cfg(target_os = "ios")]
     {
-        let values: Result<Vec<_>, _> = [endpoint, token, source, target, owner]
+        let _ = capture_source_id;
+        let values: Result<Vec<_>, _> = [endpoint, token, source, target, owner, provider, provider_key, context, input]
             .into_iter()
             .map(std::ffi::CString::new)
             .collect();
@@ -538,64 +635,131 @@ fn start_native_session(
                 save,
                 silence_timeout,
                 silence_threshold,
+                v[5].as_ptr(),
+                v[6].as_ptr(),
+                v[7].as_ptr(),
+                v[8].as_ptr(),
                 native_event,
             );
         }
         return Ok(());
     }
-    #[cfg(not(target_os = "ios"))]
+    #[cfg(target_os = "android")]
     {
-        let _ = (endpoint, token, source, target, owner, save, silence_timeout, silence_threshold);
+        return app
+            .state::<android_mobile::AndroidMobile<tauri::Wry>>()
+            .start_session(serde_json::json!({
+                "endpoint": endpoint,
+                "token": token,
+                "source": source,
+                "target": target,
+                "owner": owner,
+                "save": save,
+                "silenceTimeout": silence_timeout,
+                "silenceThreshold": silence_threshold,
+                "provider": provider,
+                "providerKey": provider_key,
+                "context": context,
+                "input": input,
+                "captureSourceId": capture_source_id,
+            }));
+    }
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    {
+        let _ = (app, endpoint, token, source, target, owner, save, silence_timeout, silence_threshold, provider, provider_key, context, input, capture_source_id);
         Err("Native mobile sessions are unavailable.".into())
     }
 }
 #[tauri::command]
-fn stop_native_session() {
-    #[cfg(target_os = "ios")]
-    unsafe {
-        audeeo_native_session_stop();
-    }
-}
-#[tauri::command]
-fn start_native_pip() -> Result<(), String> {
+fn stop_native_session(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(target_os = "ios")]
     {
+        let _ = app;
+        unsafe { audeeo_native_session_stop(); }
+        return Ok(());
+    }
+    #[cfg(target_os = "android")]
+    return app.state::<android_mobile::AndroidMobile<tauri::Wry>>().stop_session();
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    { let _ = app; Ok(()) }
+}
+#[tauri::command]
+fn start_native_pip(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "ios")]
+    {
+        let _ = app;
         unsafe {
             audeeo_pip_start();
         }
         return Ok(());
     }
-    #[cfg(not(target_os = "ios"))]
+    #[cfg(target_os = "android")]
+    return app.state::<android_mobile::AndroidMobile<tauri::Wry>>().show_presenter();
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     {
-        Err("Picture in Picture requires iOS.".into())
+        let _ = app;
+        Err("Floating captions require a supported mobile platform.".into())
     }
 }
 #[tauri::command]
-fn stop_native_pip() {
+fn stop_native_pip(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(target_os = "ios")]
-    unsafe {
-        audeeo_pip_stop();
+    {
+        let _ = app;
+        unsafe { audeeo_pip_stop(); }
+        return Ok(());
     }
+    #[cfg(target_os = "android")]
+    return app.state::<android_mobile::AndroidMobile<tauri::Wry>>().hide_presenter();
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    { let _ = app; Ok(()) }
 }
 #[tauri::command]
-fn start_microphone_capture() -> Result<(), String> {
+async fn start_microphone_capture(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AudioCaptureState>,
+) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
+        let _ = (app, state);
         unsafe {
             audeeo_microphone_start(microphone_data);
         }
         return Ok(());
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     {
+        let mut capture = state.windows_microphone.lock().map_err(|_| "Audio capture state is unavailable")?;
+        if capture.is_some() { return Err("Microphone capture is already running".into()); }
+        *capture = Some(windows_audio::WindowsAudioCapture::start_microphone(app)?);
+        Ok(())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = (app, state);
         Err("Native microphone bridge is not integrated on this platform yet.".into())
     }
 }
 #[tauri::command]
-fn stop_microphone_capture() {
+async fn stop_microphone_capture(
+    state: tauri::State<'_, AudioCaptureState>,
+) -> Result<(), String> {
     #[cfg(target_os = "macos")]
-    unsafe {
-        audeeo_microphone_stop();
+    {
+        let _ = state;
+        unsafe { audeeo_microphone_stop(); }
+        Ok(())
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let capture = state.windows_microphone.lock().map_err(|_| "Audio capture state is unavailable")?.take();
+        if let Some(capture) = capture { capture.stop()?; }
+        Ok(())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = state;
+        Ok(())
     }
 }
 
@@ -605,7 +769,7 @@ extern "C" fn system_audio_data(bytes: *const u8, len: usize, error: i32) {
         if error != 0 {
             let message = if error == 3 { "Independent source audio requires macOS 14.2 or later." }
                 else if error == 1 { "Source audio could not start. Allow Audeeo in Privacy & Security → Screen & System Audio Recording, then retry." }
-                else { "Audio route changed or buffering failed. Source playback was restored; restart captions." };
+                else { "Audio capture route changed or buffering failed. Restart captions." };
             let _ = app.emit("capture-error", message);
         } else if bytes.is_null() {
             let _ = app.emit("system-ready", ());
@@ -623,20 +787,20 @@ extern "C" fn playback_state(state: i32) {
     if let Some(app) = APP.get() { let _ = app.emit("playback-state", state); }
 }
 #[tauri::command]
-fn audio_output(command: serde_json::Value) -> Result<(), String> {
+fn audio_output(app: tauri::AppHandle, command: serde_json::Value) -> Result<(), String> {
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
-        #[cfg(target_os = "macos")]
-        if let Some(volume) = command.get("sourceVolume").and_then(|v| v.as_f64()) {
-            if !volume.is_finite() || !(0.0..=1.0).contains(&volume) { return Err("Invalid volume".into()); }
-            unsafe { audeeo_source_volume(volume); }
-        }
         let json = std::ffi::CString::new(command.to_string()).map_err(|e| e.to_string())?;
         unsafe { audeeo_playback_command(json.as_ptr(), playback_state); }
         Ok(())
     }
-    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
-    { let _ = command; Err("Native playback unavailable".into()) }
+    #[cfg(target_os = "android")]
+    {
+        app.state::<android_mobile::AndroidMobile<tauri::Wry>>()
+            .playback(command)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))]
+    { let _ = (app, command); Err("Native playback unavailable".into()) }
 }
 #[cfg(target_os = "macos")]
 extern "C" fn controls_popover_closed(presentation: i64) {
@@ -652,12 +816,42 @@ fn show_controls_popover(app: tauri::AppHandle, window: tauri::Window, x: f64, y
         let raw = host.ns_window().map_err(|e| e.to_string())? as usize;
         window.run_on_main_thread(move || unsafe { audeeo_show_controls_popover(main as *mut _, raw as *mut _, x,y,width,height,content_height,presentation,controls_popover_closed); }).map_err(|e| e.to_string())?;
     }
+    #[cfg(all(desktop, not(target_os = "macos")))]
+    {
+        let host = app.get_webview_window("controls-popup").ok_or("Controls are not ready")?;
+        let scale = window.scale_factor().map_err(|error| error.to_string())?;
+        let origin = window.outer_position().map_err(|error| error.to_string())?;
+        let popup_width = (310.0 * scale).round() as u32;
+        let popup_height = (content_height * scale).round() as u32;
+        let mut target_x = i64::from(origin.x) + (x * scale).round() as i64
+            + (width * scale).round() as i64 / 2 - i64::from(popup_width) / 2;
+        let target_y = i64::from(origin.y) + ((y + height) * scale).round() as i64;
+        if let Some(monitor) = window.current_monitor().map_err(|error| error.to_string())? {
+            let left = i64::from(monitor.position().x);
+            let right = left + i64::from(monitor.size().width) - i64::from(popup_width);
+            target_x = target_x.clamp(left, right.max(left));
+        }
+        host.set_size(tauri::PhysicalSize::new(popup_width, popup_height))
+            .map_err(|error| error.to_string())?;
+        host.set_position(tauri::PhysicalPosition::new(
+            target_x.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32,
+            target_y.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32,
+        )).map_err(|error| error.to_string())?;
+        host.show().map_err(|error| error.to_string())?;
+        host.set_focus().map_err(|error| error.to_string())?;
+    }
     Ok(())
 }
 #[tauri::command]
-fn close_controls_popover(window: tauri::Window) -> Result<(), String> {
+fn close_controls_popover(app: tauri::AppHandle, window: tauri::Window) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     window.run_on_main_thread(|| unsafe { audeeo_close_controls_popover(); }).map_err(|e| e.to_string())?;
+    #[cfg(all(desktop, not(target_os = "macos")))]
+    if let Some(host) = app.get_webview_window("controls-popup") {
+        host.hide().map_err(|error| error.to_string())?;
+    }
+    #[cfg(not(desktop))]
+    let _ = app;
     Ok(())
 }
 
@@ -668,13 +862,18 @@ fn set_window_mode(window: tauri::Window, overlay: bool, clear: bool) -> Result<
         let raw = window.ns_window().map_err(|e| e.to_string())? as usize;
         window.run_on_main_thread(move || unsafe { audeeo_window_mode(raw as *mut std::ffi::c_void, overlay, clear); }).map_err(|e| e.to_string())?;
     }
+    #[cfg(all(desktop, not(target_os = "macos")))]
+    window.set_always_on_top(overlay).map_err(|error| error.to_string())?;
+    #[cfg(not(desktop))]
+    let _ = (window, overlay);
     #[cfg(not(target_os = "macos"))]
-    let _ = (window, overlay, clear);
+    let _ = clear;
     Ok(())
 }
 
 #[tauri::command]
 fn update_overlay(
+    app: tauri::AppHandle,
     source: String,
     translation: String,
     size: f64,
@@ -687,13 +886,28 @@ fn update_overlay(
     unsafe {
         audeeo_pip_caption_size(size);
     }
+    #[cfg(target_os = "android")]
+    app.state::<android_mobile::AndroidMobile<tauri::Wry>>().update_presenter(
+        serde_json::json!({
+            "source": source,
+            "translation": translation,
+            "size": size,
+            "opaque": opaque,
+            "recording": recording,
+            "preferences": preferences,
+        }),
+    )?;
+    #[cfg(not(target_os = "android"))]
+    let _ = app;
     Ok(())
 }
 
 #[derive(Default)]
 pub struct AudioCaptureState {
     #[cfg(target_os = "windows")]
-    windows: std::sync::Mutex<Option<windows_audio::WindowsAudioCapture>>,
+    windows_system: std::sync::Mutex<Option<windows_audio::WindowsAudioCapture>>,
+    #[cfg(target_os = "windows")]
+    windows_microphone: std::sync::Mutex<Option<windows_audio::WindowsAudioCapture>>,
 }
 
 #[cfg(target_os = "macos")]
@@ -707,19 +921,22 @@ struct SystemAudioChunk {
 async fn start_system_audio_capture(
     app: tauri::AppHandle,
     state: tauri::State<'_, AudioCaptureState>,
+    source_id: Option<String>,
 ) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         let _ = (app, state);
-        unsafe { audeeo_system_start(system_audio_data); }
+        let source = std::ffi::CString::new(source_id.unwrap_or_default()).map_err(|error| error.to_string())?;
+        unsafe { audeeo_system_start(source.as_ptr(), system_audio_data); }
         Ok(())
     }
 
     #[cfg(target_os = "windows")]
     {
-        let mut capture = state.windows.lock().map_err(|_| "Audio capture state is unavailable")?;
+        let mut capture = state.windows_system.lock().map_err(|_| "Audio capture state is unavailable")?;
         if capture.is_some() { return Err("Device audio capture is already running".into()); }
-        *capture = Some(windows_audio::WindowsAudioCapture::start(app)?);
+        let process_id = source_id.as_deref().and_then(|value| value.strip_prefix("windows:")).map(str::parse::<u32>).transpose().map_err(|_| "The selected application is no longer available")?;
+        *capture = Some(windows_audio::WindowsAudioCapture::start_system(app, process_id)?);
         Ok(())
     }
 
@@ -744,7 +961,7 @@ async fn stop_system_audio_capture(
 
     #[cfg(target_os = "windows")]
     {
-        let capture = state.windows.lock().map_err(|_| "Audio capture state is unavailable")?.take();
+        let capture = state.windows_system.lock().map_err(|_| "Audio capture state is unavailable")?.take();
         if let Some(capture) = capture { capture.stop()?; }
         Ok(())
     }
@@ -792,7 +1009,7 @@ fn nudge_main_window(window: tauri::Window, dx: f64, dy: f64) -> Result<(), Stri
 // AppKit preserves the top edge and clamps the expanded frame to the visible screen.
 #[tauri::command]
 fn resize_main_window(window: tauri::Window, height: f64) -> Result<(), String> {
-    if !height.is_finite() || !(224.0..=640.0).contains(&height) {
+    if !height.is_finite() || !(224.0..=720.0).contains(&height) {
         return Err("Unsupported window height".into());
     }
     #[cfg(target_os = "macos")]
@@ -804,7 +1021,48 @@ fn resize_main_window(window: tauri::Window, height: f64) -> Result<(), String> 
             })
             .map_err(|e| e.to_string())?;
     }
+    #[cfg(all(desktop, not(target_os = "macos")))]
+    {
+        let scale = window.scale_factor().map_err(|e| e.to_string())?;
+        let current = window.outer_size().map_err(|e| e.to_string())?;
+        let width = current.width as f64 / scale;
+        window
+            .set_size(tauri::LogicalSize::new(width, height))
+            .map_err(|e| e.to_string())?;
+    }
     let _ = (window, height);
+    Ok(())
+}
+
+// Apply the user's normalized caption width to the native window while keeping
+// its center in place.
+#[tauri::command]
+fn resize_overlay_width(window: tauri::Window, width: f64) -> Result<(), String> {
+    if !width.is_finite() || !(480.0..=3840.0).contains(&width) {
+        return Err("Unsupported overlay width".into());
+    }
+    #[cfg(desktop)]
+    {
+        let scale = window.scale_factor().map_err(|error| error.to_string())?;
+        let old_size = window.outer_size().map_err(|error| error.to_string())?;
+        let old_position = window.outer_position().map_err(|error| error.to_string())?;
+        let monitor = window.current_monitor().map_err(|error| error.to_string())?;
+        let monitor_width = monitor.as_ref().map(|monitor| monitor.size().width).unwrap_or(u32::MAX);
+        let target_width = ((width * scale).round() as u32).min(monitor_width).max(1);
+        let center_x = i64::from(old_position.x) + i64::from(old_size.width) / 2;
+        let mut target_x = center_x - i64::from(target_width) / 2;
+        if let Some(monitor) = monitor {
+            let left = i64::from(monitor.position().x);
+            let right = left + i64::from(monitor.size().width) - i64::from(target_width);
+            target_x = target_x.clamp(left, right);
+        }
+        let target_x = target_x.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
+        window.set_size(tauri::PhysicalSize::new(target_width, old_size.height))
+            .map_err(|error| error.to_string())?;
+        window.set_position(tauri::PhysicalPosition::new(target_x, old_position.y))
+            .map_err(|error| error.to_string())?;
+    }
+    let _ = (window, width);
     Ok(())
 }
 
@@ -859,12 +1117,16 @@ pub fn run() {
             .plugin(tauri_plugin_deep_link::init())
             .plugin(tauri_plugin_opener::init());
     }
+    #[cfg(target_os = "android")]
+    {
+        builder = builder.plugin(android_mobile::init());
+    }
     builder
         .manage(OAuthCallbacks::default())
         .manage(OAuthLoopbackState::default())
         .manage(AudioCaptureState::default())
         .setup(|_app| {
-            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
             let _ = APP.set(_app.handle().clone());
             #[cfg(not(any(target_os = "ios", target_os = "android")))]
             {
@@ -907,6 +1169,8 @@ pub fn run() {
             auth_storage_get,
             auth_storage_set,
             auth_storage_retry,
+            context_storage_get,
+            context_storage_set,
             purchase_action,
             start_native_session,
             stop_native_session,
@@ -924,6 +1188,7 @@ pub fn run() {
             stop_system_audio_capture,
             nudge_main_window,
             resize_main_window,
+            resize_overlay_width,
             minimize_window,
             close_window,
             set_always_on_top

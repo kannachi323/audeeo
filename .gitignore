@@ -17,7 +17,6 @@ src-tauri/gen/schemas/
 # Sub-projects
 website/node_modules/
 website/dist/
-website/.vercel/
 website/.env.local
 website/*.tsbuildinfo
 

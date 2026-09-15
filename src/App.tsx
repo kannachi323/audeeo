@@ -1,12 +1,12 @@
 import {ProviderIcon} from "./components/ProviderIcon";
 import {CaptureStatus} from "./components/CaptureStatus";
-import {languageName, isTranslationSource, isTranscriptionLanguage} from "../shared/languages";
+import {languageName, isTranslationSource, isTranscriptionLanguage, isTranslationTarget} from "../shared/languages";
 import { Subscriptions } from "./components/Subscriptions";
 import { listen } from "@tauri-apps/api/event";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-import { useEffect, useRef, useState, useReducer } from "react";
+import { useEffect, useRef, useState, useReducer, type CSSProperties } from "react";
 import type { Session } from "@supabase/supabase-js";
 import {
   AudioLines,
@@ -21,6 +21,11 @@ import {
   UserRound,
   LogOut,
   GripHorizontal,
+  KeyRound,
+  Sparkles,
+  Play,
+  Square,
+  LoaderCircle,
 } from "lucide-react";
 import { Button } from "./components/Button";
 import { silenceSettings } from "../shared/silence";
@@ -33,36 +38,58 @@ import {
   capabilities,
   type AudioInput,
   type Capabilities,
+  type InputMode,
 } from "./lib/platform";
+import { DesktopCaptureMixer } from "./lib/captureMixer";
 import {
   RealtimeTranslationClient,
   NativeRelayClient,
   type CaptionConnection,
-  type ProviderCredentials,
   type RelayEvent,
 } from "./lib/realtime";
+import { ProviderSettings } from "./components/ProviderSettings";
+import { SessionIntelligence } from "./components/SessionIntelligence";
+import { emptySessionContext, type SessionContext } from "../shared/context";
+import { loadSessionContext, saveSessionContext } from "./lib/contextStorage";
+import {
+  emptyProviderKeys,
+  providerCredentials,
+  type ProviderId,
+  type ProviderMode,
+} from "./lib/providers";
 import {
   supabase,
   signIn,
+  signInWithEmailPassword,
+  signUpWithEmailPassword,
   listenForAuth,
   historyRemote,
   listHistory,
   relayURL,
   accountRequest,
+  contextFromLink as generateContextFromLink,
+  type HistorySession,
 } from "./lib/account";
+import type { SavedSessionSummary } from "../shared/intelligence";
 import { HistoryOutbox } from "../shared/history";
 import type { Language, Segment } from "../shared/pipeline";
 import { startNativePip } from "./lib/pip";
 
 import { BrowserPlayback } from "./lib/playback";
 import { LiveCaptions } from "./components/LiveCaptions";
+import { MobileSessionGuide } from "./components/MobileSessionGuide";
+import { DesktopOnboarding } from "./components/DesktopOnboarding";
 import { initialPresentation, presentationReducer, isOverlay, type Page, type SessionPhase as Status } from "./lib/presentation";
+import { classifyMobileError, initialMobileLiveState, mobileLiveReducer } from "./lib/mobileSession";
+import { colorWithOpacity, loadOverlayAppearance, overlayFontStacks } from "./lib/overlayAppearance";
 const messages = {
   idle: "Ready to listen",
   connecting: "Connecting…",
   live: "Listening",
   stopping: "Finishing captions…",
 };
+const resizeDirections = ["North", "NorthEast", "East", "SouthEast", "South", "SouthWest", "West", "NorthWest"] as const;
+const desktopOnboardingKey = (owner: string) => `audeeo.onboarding.desktop.${owner}`;
 export default function App() {
   const [silence, setSilence] = useState(() => {
     try { return silenceSettings(JSON.parse(localStorage.getItem("audeeo.silence") || "null")); }
@@ -71,6 +98,7 @@ export default function App() {
   useEffect(() => { localStorage.setItem("audeeo.silence", JSON.stringify(silence)); }, [silence]);
   const [captionMode, setCaptionMode] = useState<"subtitles" | "translate">("subtitles");
   const [presentation, dispatch] = useReducer(presentationReducer, initialPresentation);
+  const [mobileSession, dispatchMobile] = useReducer(mobileLiveReducer, initialMobileLiveState);
   const {phase: status, page: view, playing} = presentation;
   const setStatus = (value: Status) => dispatch({type: 'phase', value});
   const setView = (value: Page) => dispatch({type: 'page', value});
@@ -78,17 +106,14 @@ export default function App() {
   const browserPlayback = useRef<BrowserPlayback | undefined>(undefined);
   browserPlayback.current ??= new BrowserPlayback(value=>dispatch({type:"playing",value}));
   const [audioOpen, setAudioOpen] = useState<ControlGroup | null>(null);
-  const [sourceVolume, setSourceVolume] = useState(1);
+  const [desktopGain, setDesktopGain] = useState(1);
+  const [microphoneGain, setMicrophoneGain] = useState(1);
   const [translatedVolume, setTranslatedVolume] = useState(1);
-  const [sourceMuted, setSourceMuted] = useState(false);
+  const [desktopMuted, setDesktopMuted] = useState(false);
+  const [microphoneMuted, setMicrophoneMuted] = useState(false);
   const [translatedMuted, setTranslatedMuted] = useState(false);
   const expanded = view !== "captions";
-  const [overlayStyle, setOverlayStyle] = useState<"transparent" | "panel">(
-    () =>
-      localStorage.getItem("audeeo.overlay-style") === "panel"
-        ? "panel"
-        : "transparent",
-  );
+  const [appearance, setAppearance] = useState(() => loadOverlayAppearance(localStorage));
   const [showSource, setShowSource] = useState(
     () => localStorage.getItem("audeeo.show-source") !== "false",
   );
@@ -96,6 +121,9 @@ export default function App() {
     () => localStorage.getItem("audeeo.auto-hide") !== "false",
   );
   const [authPending, setAuthPending] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
+  const [capsReady, setCapsReady] = useState(false);
+  const [onboardingComplete, setOnboardingComplete] = useState(false);
   const returnFocus = useRef<HTMLButtonElement | null>(null);
   const pageHeading = useRef<HTMLHeadingElement | null>(null);
   const settingsBack = useRef<HTMLButtonElement | null>(null);
@@ -106,9 +134,13 @@ export default function App() {
     microphone: false,
     systemAudio: false,
     globalOverlay: false,
+    applicationAudio: false,
+    inputMix: false,
+    translatedPlayback: false,
   });
-  const [input, setInput] = useState<"microphone" | "system">("microphone"),
+  const [input, setInput] = useState<InputMode>("microphone"),
     [source, updateSource] = useState<Language>("zh");
+  const [captureSourceId, setCaptureSourceId] = useState("all");
   const [translationTarget, setTarget] = useState<Language>("en");
   const setSource = (value: Language) => {
     updateSource(value);
@@ -117,34 +149,56 @@ export default function App() {
   useEffect(() => {
     if (!(captionMode === "translate" ? isTranslationSource(source) : isTranscriptionLanguage(source))) updateSource("auto");
   }, [captionMode, source]);
-  const [save, setSave] = useState(true),
-    [size, setSize] = useState(() =>
-      Math.max(
-        18,
-        Math.min(40, Number(localStorage.getItem("audeeo.caption-size")) || 24),
-      ),
-    );
+  const [save, setSave] = useState(true);
   const [opaque, setOpaque] = useState(
     () => localStorage.getItem("audeeo.opaque") === "true",
   );
   const [segments, setSegments] = useState<Segment[]>([]),
-    [history, setHistory] = useState<any[]>([]),
+    [history, setHistory] = useState<HistorySession[]>([]),
     [syncState, setSyncState] = useState("");
   const [deleteAccount, setDeleteAccount] = useState(false);
   const [billingPending, setBillingPending] = useState(false);
-  const [ownProvider, setOwnProvider] = useState<ProviderCredentials["provider"]>("openai");
-  const [ownProviderKey, setOwnProviderKey] = useState("");
+  const [providerMode, setProviderMode] = useState<ProviderMode>("audeeo");
+  const [providerKeys, setProviderKeys] = useState(emptyProviderKeys);
+  const [translationContext, setTranslationContext] = useState<SessionContext>(emptySessionContext);
+  const [contextReady, setContextReady] = useState(false);
+  const [intelligenceSession, setIntelligenceSession] = useState<HistorySession | null>(null);
   const owner = useRef<string | undefined>(undefined),
+    onboardingOwner = useRef<string | undefined>(undefined),
     outbox = useRef<HistoryOutbox | undefined>(undefined);
   const client = useRef<CaptionConnection | undefined>(undefined),
     capture = useRef<AudioInput | undefined>(undefined),
-    generation = useRef(0);
+    generation = useRef(0),
+    mobileFailed = useRef(false);
   const active = status !== "idle" || playing,
     target: Language = captionMode === "subtitles" ? source : translationTarget;
+  const mobile = caps.platform === "ios" || caps.platform === "android";
+  const desktop = caps.platform === "macos" || caps.platform === "windows";
+  const rememberedAudeeoSetup = session
+    ? localStorage.getItem(desktopOnboardingKey(session.user.id)) === "audeeo"
+    : false;
+  const onboardingVisible = capsReady && authReady && desktop &&
+    (!session || (!onboardingComplete && !rememberedAudeeoSetup));
+  const panelExpanded = expanded || onboardingVisible;
+  const inputMix = caps.inputMix ?? desktop;
+  const applicationAudio = caps.applicationAudio ??
+    ["macos", "windows", "android"].includes(caps.platform);
+  const translatedPlayback = caps.translatedPlayback ??
+    (caps.platform !== "android");
   const latest = segments.at(-1);
   const translated = [...segments]
     .reverse()
     .find((s) => !!s.translatedText);
+  useEffect(()=>{
+    let mounted=true;
+    void loadSessionContext().then(value=>{if(mounted){setTranslationContext(value);setContextReady(true);}});
+    return ()=>{mounted=false;};
+  },[]);
+  useEffect(()=>{
+    if(!contextReady) return;
+    const timer=setTimeout(()=>void saveSessionContext(translationContext).catch(error=>setIssue(String(error))),250);
+    return ()=>clearTimeout(timer);
+  },[translationContext,contextReady]);
   const sync = async () => {
     try {
       const box = outbox.current;
@@ -168,10 +222,15 @@ export default function App() {
     // Remove the prototype's consumer credential storage without reading or exposing its value.
     localStorage.removeItem("audeeo_api_key");
     void capabilities()
-      .then(setCaps)
+      .then((next) => {
+        setCaps(next);
+        if ((next.platform === "android" || next.platform === "ios") && next.systemAudio) setInput("system");
+        if ((next.platform === "macos" || next.platform === "windows") && next.systemAudio) setInput("mixed");
+      })
       .catch(() =>
         setIssue("Native capabilities could not be loaded. Restart Audeeo."),
-      );
+      )
+      .finally(() => setCapsReady(true));
     let unlisten: undefined | (() => void);
     void listenForAuth((error) => {
       setAuthPending(false);
@@ -190,6 +249,7 @@ export default function App() {
       }
       owner.current = next?.user.id;
       setSession(next);
+      setAuthReady(true);
       setAuthPending(false);
       if (!next && isTauri()) {
         void invoke("audio_output", {command:{stop:true}}).catch(()=>undefined);
@@ -206,10 +266,14 @@ export default function App() {
       // Supabase auth callbacks run under an auth lock; sync reads the session.
       setTimeout(() => void sync(), 0);
     };
-    void supabase?.auth.getSession().then(({ data, error }) => {
-      if (error) { setIssue(error.message); return; }
+    if (!supabase) setAuthReady(true);
+    else void supabase.auth.getSession().then(({ data, error }) => {
+      if (error) { setIssue(error.message); setAuthReady(true); return; }
       update(data.session);
-    }).catch(error => setIssue(error instanceof Error ? error.message : String(error)));
+    }).catch(error => {
+      setIssue(error instanceof Error ? error.message : String(error));
+      setAuthReady(true);
+    });
     const subscription = supabase?.auth.onAuthStateChange((_event, s) =>
       update(s),
     );
@@ -227,20 +291,33 @@ export default function App() {
     };
   }, []);
   useEffect(() => {
-    localStorage.setItem("audeeo.caption-size", String(size));
+    if (!capsReady || !authReady || !desktop) return;
+    const nextOwner = session?.user.id;
+    if (!nextOwner) {
+      onboardingOwner.current = undefined;
+      setOnboardingComplete(false);
+      return;
+    }
+    if (onboardingOwner.current === nextOwner) return;
+    onboardingOwner.current = nextOwner;
+    const saved = localStorage.getItem(desktopOnboardingKey(nextOwner));
+    if (saved === "audeeo" || saved === "openai" || saved === "soniox") setProviderMode(saved);
+    setOnboardingComplete(saved === "audeeo");
+  }, [capsReady, authReady, desktop, session?.user.id]);
+  useEffect(() => {
+    localStorage.setItem("audeeo.overlay-appearance", JSON.stringify(appearance));
     localStorage.setItem("audeeo.opaque", String(opaque));
-    localStorage.setItem("audeeo.overlay-style", overlayStyle);
     localStorage.setItem("audeeo.show-source", String(showSource));
     localStorage.setItem("audeeo.auto-hide", String(autoHide));
     if (caps.nativePip)
       void invoke("update_overlay", {
         source: latest?.sourceText || (captionMode === "translate" ? "" : "Ready to listen"),
         translation: translated?.translatedText || "",
-        size,
+        size: appearance.fontSize,
         opaque,
         recording: status === "live",
         preferences: {
-          style: overlayStyle,
+          appearance,
           showSource: captionMode === "subtitles" || showSource,
           autoHide,
           status,
@@ -253,12 +330,11 @@ export default function App() {
   }, [
     latest,
     translated,
-    size,
+    appearance,
     opaque,
     caps.globalOverlay,
     caps.nativePip,
     status,
-    overlayStyle,
     showSource,
     autoHide,
     source,
@@ -268,23 +344,36 @@ export default function App() {
     session,
   ]);
   useEffect(() => {
-    if (caps.platform === "macos")
+    if (desktop)
       void invoke("resize_main_window", {
-        height: expanded ? 500 : 224,
+        height: onboardingVisible ? 680 : expanded ? 500 : 224,
       }).catch(() =>
         setIssue("The window couldn’t resize. You can resize it from an edge."),
       );
-  }, [expanded, caps.platform]);
+  }, [expanded, onboardingVisible, desktop]);
   useEffect(() => {
-    if (caps.platform !== 'macos') return;
-    void invoke('set_window_mode', {overlay, clear: overlay && !expanded && overlayStyle === 'transparent' && !opaque});
-  }, [overlay, expanded, overlayStyle, opaque, caps.platform]);
+    if (panelExpanded || caps.platform === "browser") return;
+    void invoke("resize_overlay_width", {width: appearance.panelWidth}).catch(() =>
+      setIssue("The overlay width couldn’t be changed. You can still resize it from an edge."),
+    );
+  }, [panelExpanded, appearance.panelWidth, caps.platform]);
   useEffect(() => {
-    if (caps.platform !== 'macos' && !caps.nativeSession) { browserPlayback.current?.setVolume(translatedMuted ? 0 : translatedVolume); return; }
-    void invoke('audio_output', {command: {sourceVolume: sourceMuted ? 0 : sourceVolume, volume: translatedMuted ? 0 : translatedVolume}});
-  }, [sourceVolume, translatedVolume, sourceMuted, translatedMuted, caps.platform]);
+    if (caps.platform !== 'macos' && caps.platform !== 'windows') return;
+    void invoke('set_window_mode', {overlay, clear: overlay && !panelExpanded && !opaque && (appearance.backgroundOpacity < 1 || appearance.overlayOpacity < 1)});
+  }, [overlay, panelExpanded, appearance.backgroundOpacity, appearance.overlayOpacity, opaque, caps.platform]);
   useEffect(() => {
-    if (caps.platform !== 'macos' && !caps.nativeSession) return;
+    if (!translatedPlayback) { dispatch({type:'playing', value:false}); return; }
+    if (!['macos','ios','android'].includes(caps.platform)) { browserPlayback.current?.setVolume(translatedMuted ? 0 : translatedVolume); return; }
+    void invoke('audio_output', {command: {volume: translatedMuted ? 0 : translatedVolume}}).catch(()=>undefined);
+  }, [translatedVolume, translatedMuted, caps.platform, translatedPlayback]);
+  useEffect(() => {
+    capture.current?.setGains?.({
+      microphone: microphoneMuted ? 0 : microphoneGain,
+      system: desktopMuted ? 0 : desktopGain,
+    });
+  }, [microphoneGain, microphoneMuted, desktopGain, desktopMuted]);
+  useEffect(() => {
+    if (caps.platform !== 'macos' && caps.platform !== 'ios') return;
     let disposed = false, unlisten: (() => void) | undefined;
     void listen<number>('playback-state', ({payload}) => {
       dispatch({type: 'playing', value: payload > 0});
@@ -316,18 +405,19 @@ export default function App() {
   async function stop() {
     if (stopInProgress.current) return stopInProgress.current;
     if (status === 'idle' && playing) {
-      if (caps.platform === 'macos' || caps.nativeSession) await invoke('audio_output', {command:{stop:true}});
+      if (caps.platform === 'macos' || caps.platform === 'ios') await invoke('audio_output', {command:{stop:true}});
       else browserPlayback.current?.stop();
       return;
     }
     const work = (async () => {
     if (status === "connecting") generation.current++;
     setStatus("stopping");
+    if (mobile) dispatchMobile({type:"stopping"});
     try { await capture.current?.stop(); }
     finally {
       capture.current = undefined;
       try { await client.current?.finish(); }
-      finally { client.current = undefined; setStatus("idle"); }
+      finally { client.current = undefined; setStatus("idle"); if (mobile) dispatchMobile({type:"idle"}); }
     }
     await sync();
     })();
@@ -375,11 +465,14 @@ export default function App() {
     const shouldSave = save;
     const sessionOutbox = outbox.current;
     setIssue("");
+    mobileFailed.current = false;
     setSegments([]);
     setStatus("connecting");
+    if (mobile) dispatchMobile({type: input === "system" ? "permission" : "model"});
     const event = (e: RelayEvent) => {
       if (run !== generation.current) return;
       if (e.type === "segment") {
+        if (mobile) dispatchMobile({type:"translation"});
         setSegments((previous) => {
           const existing = previous.find((s) => s.id === e.segment.id);
           if (existing && existing.revision > e.segment.revision)
@@ -398,47 +491,64 @@ export default function App() {
           }
         }
       }
-      if (e.type === 'audio' && caps.platform !== 'macos' && !caps.nativeSession) {
+      if (e.type === "status" && mobile) dispatchMobile({type:"native", state:e.state, message:e.message});
+      if (e.type === 'audio' && translatedPlayback && caps.platform !== 'macos' && !caps.nativeSession) {
         try { browserPlayback.current?.enqueue(e.pcm); } catch (error) { setIssue(String(error)); browserPlayback.current?.stop(); void stopCurrent.current(); }
       }
-      if (e.type === "audio" && caps.platform === 'macos') {
+      if (e.type === "audio" && translatedPlayback && caps.platform === 'macos') {
         dispatch({type:'playing', value:true});
         void invoke('audio_output', {command:{pcm:e.pcm}}).catch(() => { setIssue('Audio playback unavailable.'); dispatch({type:'playing',value:false}); void stopCurrent.current(); });
       }
-      if (e.type === "error") { setIssue(e.message); void capture.current?.stop(); }
+      if (e.type === "error") {
+        mobileFailed.current = true;
+        setIssue(e.message);
+        if (mobile) dispatchMobile({type:"failed", error:classifyMobileError(e.message), message:e.message});
+        void capture.current?.stop();
+      }
       if (e.type === "finished") {
         if (e.reason === "silence timeout") setIssue("Stopped after silence to save usage. Press Start to resume.");
         client.current = undefined;
         void capture.current?.stop();
         capture.current = undefined;
         setStatus("idle");
+        if (mobile && !mobileFailed.current) dispatchMobile({type:"idle"});
         void sync();
       }
     };
     try {
-      if (caps.platform !== "macos" && !caps.nativeSession) await browserPlayback.current?.prepare();
-      else await invoke("audio_output", {command:{reset:true}});
+      if (caps.nativeSession) {
+        if (caps.platform === "ios" || caps.platform === "android") await invoke("audio_output", {command:{reset:true}});
+      } else if (caps.platform !== "macos") {
+        await browserPlayback.current?.prepare();
+      } else {
+        await invoke("audio_output", {command:{reset:true}});
+      }
       const token = (await supabase!.auth.getSession()).data.session
         ?.access_token;
       if (!token) throw new Error("Sign in again to continue.");
+      const mobileInput = input === "mixed" ? "system" : input;
       const relay = caps.nativeSession
-        ? new NativeRelayClient(relayURL, event, session.user.id, save)
+        ? new NativeRelayClient(relayURL, event, session.user.id, save, mobileInput, captureSourceId)
         : new RealtimeTranslationClient(relayURL, event);
       client.current = relay;
-      const providerKey = ownProviderKey.trim();
-      if (providerKey) await relay.connect(token, source, target, silence, {provider: ownProvider, apiKey: providerKey});
-      else await relay.connect(token, source, target, silence);
+      const credentials = providerCredentials(providerMode, providerKeys);
+      await relay.connect(token, source, target, silence, credentials ?? undefined, translationContext);
       if (run !== generation.current) {
         await relay.finish();
         return;
       }
       if (caps.nativeSession) {
         setStatus("live");
+        if (mobile) dispatchMobile({type:"waiting"});
         return;
       }
-      const audio =
-        caps.platform === "macos" || input === "system"
-          ? new NativeCapture(input)
+      const audio = desktop
+        ? new DesktopCaptureMixer(input, captureSourceId, {
+            microphone: microphoneMuted ? 0 : microphoneGain,
+            system: desktopMuted ? 0 : desktopGain,
+          })
+        : input === "system"
+          ? new NativeCapture(input, captureSourceId)
           : new BrowserMicrophone();
       capture.current = audio;
       await audio.start(
@@ -453,10 +563,11 @@ export default function App() {
         return;
       }
       setStatus("live");
+      if (mobile) dispatchMobile({type:"waiting"});
     } catch (error) {
-      setIssue(
-        error instanceof Error ? error.message : typeof error === "string" && error.trim() ? error : "Could not start. Retry.",
-      );
+      const message = error instanceof Error ? error.message : typeof error === "string" && error.trim() ? error : "Could not start. Retry.";
+      setIssue(message);
+      if (mobile) dispatchMobile({type:"failed", error:classifyMobileError(message), message});
       try { await capture.current?.stop(); }
       finally {
         capture.current = undefined;
@@ -570,8 +681,85 @@ export default function App() {
       setAuthPending(false);
     }
   }
+  async function authenticateEmail(email: string, password: string) {
+    setAuthPending(true);
+    setIssue("");
+    try {
+      await signInWithEmailPassword(email, password);
+    } catch (error) {
+      setIssue(error instanceof Error ? error.message : "Sign-in failed. Try again.");
+      throw error;
+    } finally {
+      setAuthPending(false);
+    }
+  }
+  async function createEmailAccount(email: string, password: string) {
+    setAuthPending(true);
+    setIssue("");
+    try {
+      return await signUpWithEmailPassword(email, password);
+    } catch (error) {
+      setIssue(error instanceof Error ? error.message : "Account creation failed. Try again.");
+      throw error;
+    } finally {
+      setAuthPending(false);
+    }
+  }
+  async function signOut() {
+    setIssue("");
+    try {
+      if (!supabase) throw new Error("Sign-out is unavailable in this build.");
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+    } catch (error) {
+      setIssue(error instanceof Error ? error.message : "Sign-out failed. Try again.");
+    }
+  }
+  const panelStyle = {
+    "--overlay-width": `${appearance.panelWidth}px`,
+    ...(overlay && !expanded ? {
+    "--overlay-background": opaque ? "#191919" : colorWithOpacity(appearance.backgroundColor, appearance.backgroundOpacity),
+    "--overlay-border": colorWithOpacity(appearance.borderColor, appearance.borderOpacity),
+    "--overlay-border-width": `${appearance.borderWidth}px`,
+    "--overlay-radius": `${appearance.borderRadius}px`,
+    "--overlay-text": appearance.textColor,
+    "--overlay-source-text": appearance.sourceTextColor,
+    "--overlay-text-opacity": String(appearance.textOpacity),
+    "--overlay-font": overlayFontStacks[appearance.fontFamily],
+    "--overlay-font-weight": String(appearance.fontWeight),
+    "--overlay-controls-opacity": String(appearance.controlsOpacity),
+    "--overlay-opacity": String(opaque ? 1 : appearance.overlayOpacity),
+    } : {}),
+  } as CSSProperties;
   return (
     <>
+      {caps.platform === "windows" && resizeDirections.map(direction => (
+        <div
+          key={direction}
+          aria-hidden="true"
+          className={`window-resize-handle resize-${direction.toLowerCase()}`}
+          onPointerDown={event => {
+            if (event.button !== 0) return;
+            event.preventDefault();
+            event.stopPropagation();
+            void getCurrentWindow().startResizeDragging(direction).catch(() =>
+              setIssue("The window couldn’t begin resizing. Try again from another edge."),
+            );
+          }}
+        />
+      ))}
+      {intelligenceSession && session && <SessionIntelligence
+        row={intelligenceSession}
+        session={session}
+        openaiKey={providerKeys.openai.trim() || undefined}
+        onClose={()=>setIntelligenceSession(null)}
+        onProviders={()=>{setIntelligenceSession(null);openPage("providers");}}
+        onSubscription={()=>{setIntelligenceSession(null);openPage("account");}}
+        onSaved={(summary: SavedSessionSummary)=>{
+          setHistory(rows=>rows.map(row=>row.id===intelligenceSession.id?{...row,session_summaries:[summary]}:row));
+          setIntelligenceSession(row=>row?{...row,session_summaries:[summary]}:row);
+        }}
+      />}
       {caps.platform === "windows" && (
         <button
           type="button"
@@ -587,8 +775,34 @@ export default function App() {
           </span>
         </button>
       )}
+    {onboardingVisible ? <DesktopOnboarding
+      key={session?.user.id || "signed-out"}
+      session={session}
+      platform={caps.platform}
+      configured={Boolean(supabase)}
+      authPending={authPending}
+      error={issue}
+      initialMode={providerMode}
+      keys={providerKeys}
+      onSocialSignIn={provider => void authenticate(provider)}
+      onEmailSignIn={authenticateEmail}
+      onEmailSignUp={createEmailAccount}
+      onSignOut={signOut}
+      onResetAuth={() => { setAuthPending(false); setIssue(""); }}
+      onMode={setProviderMode}
+      onKey={(provider, key) => setProviderKeys(current => ({...current, [provider]: key}))}
+      onComplete={mode => {
+        if (!session) return;
+        setProviderMode(mode);
+        localStorage.setItem(desktopOnboardingKey(session.user.id), mode);
+        setOnboardingComplete(true);
+        setView("captions");
+      }}
+    /> : (
     <main
-      className={`subtitle-panel ${expanded ? "expanded" : ""} ${overlay && !expanded && overlayStyle === "transparent" && !opaque ? "clear-overlay" : ""} ${autoHide ? "auto-hide" : ""} ${audioOpen && !expanded ? "popover-open" : ""}`}
+      data-platform={caps.platform}
+      className={`subtitle-panel ${expanded ? "expanded" : ""} ${mobile ? "mobile-panel" : ""} ${caps.platform === "browser" ? "browser-panel" : ""} ${overlay && !expanded ? "custom-overlay" : ""} ${autoHide ? "auto-hide" : ""} ${audioOpen && !expanded ? "popover-open" : ""}`}
+      style={panelStyle}
     >
       <header className={`panel-header${expanded ? " settings-header" : ""}`}>
         <div className="header-leading">
@@ -598,10 +812,16 @@ export default function App() {
             {view === "settings" && <h1 ref={pageHeading} tabIndex={-1}>Settings</h1>}
           </div>
         ) : (
-          <CaptureStatus input={input} status={status} playing={playing} platform={caps.platform}/>
+          <CaptureStatus input={input} status={status} playing={playing} platform={caps.platform} captureSourceId={captureSourceId}/>
         )}
         </div>
           <div className="header-actions">
+            {mobile && caps.nativePip && status === "live" && <Button
+              className="icon-button mobile-presenter-button"
+              aria-label={caps.platform === "android" ? "Show floating captions" : "Start Picture in Picture"}
+              title={caps.platform === "android" ? "Float captions over other apps" : "Picture in Picture"}
+              onClick={()=>void startNativePip().catch(e=>setIssue(String(e)))}
+            ><PictureInPicture2 /></Button>}
             <Button
               className="icon-button"
               aria-label="Show audio overlay"
@@ -625,9 +845,17 @@ export default function App() {
       </header>
       <div className="page-content" key={view}>
         {expanded && view !== "settings" && <h1 ref={pageHeading} tabIndex={-1} className="settings-section-title">
-          {view === "overlay" ? "Overlay" : view === "configuration" ? "Audio & languages" : view === "history" ? "History" : "Account"}
+          {view === "overlay" ? "Overlay" : view === "configuration" ? "Audio & languages" : view === "history" ? "History" : view === "providers" ? "Providers" : "Account"}
         </h1>}
-        {!expanded && <LiveCaptions source={captionMode === 'subtitles' || showSource ? segments.map(s => s.sourceText).join(' ') : ''} translation={captionMode === 'translate' ? segments.map(s => s.translatedText).join('') : ''} sourceLanguage={source} targetLanguage={target} size={size}/>}
+        {!expanded && mobile && <MobileSessionGuide platform={caps.platform} input={input === 'mixed' ? 'system' : input} state={mobileSession}/>}
+        {!expanded && <LiveCaptions source={captionMode === 'subtitles' || showSource ? segments.map(s => s.sourceText).join(' ') : ''} translation={captionMode === 'translate' ? segments.map(s => s.translatedText).join('') : ''} sourceLanguage={source} targetLanguage={target} size={appearance.fontSize}/>}
+        {!expanded && <Button
+          className={`content-session-toggle${status === "idle" && !playing ? " is-start" : ""}${active ? " is-stop" : ""}${status === "connecting" || status === "stopping" ? " is-busy" : ""}`}
+          aria-label={status === "connecting" ? "Connecting" : status === "stopping" ? "Finishing captions" : active ? "Stop captions" : "Start captions"}
+          title={status === "connecting" ? "Connecting" : status === "stopping" ? "Finishing captions" : active ? "Stop captions" : "Start captions"}
+          disabled={status === "connecting" || status === "stopping" || (!!session && !caps.microphone && input === "microphone")}
+          onClick={()=>{setAudioOpen(null);void(active ? stop() : start());}}
+        >{status === "connecting" || status === "stopping" ? <LoaderCircle className="busy-icon"/> : active ? <Square/> : <Play/>}<span>{status === "connecting" ? "Starting…" : status === "stopping" ? "Finishing…" : active ? "Stop captions" : "Start captions"}</span></Button>}
         {view === "settings" && (
           <section className="settings-menu" aria-label="Settings">
 
@@ -636,38 +864,30 @@ export default function App() {
               onClick={() => openPage("overlay")}
             >
               <PictureInPicture2 />
-              <span>
-                Overlay
-                <small>
-                  {overlayStyle === "transparent"
-                    ? "Transparent while listening"
-                    : "Solid panel"}
-                </small>
-              </span>
+              <span>Overlay</span>
               <ChevronDown />
             </Button>
             <Button onClick={() => void showHistory()}>
               <History />
-              <span>
-                History<small>Your saved captions</small>
-              </span>
+              <span>History</span>
+              <ChevronDown />
+            </Button>
+            <Button onClick={() => openPage("providers")}>
+              <KeyRound />
+              <span>Providers</span>
               <ChevronDown />
             </Button>
             <Button onClick={() => openPage("account")}>
               <UserRound />
-              <span>
-                Account<small>Sign-in and subscription</small>
-              </span>
+              <span>Account</span>
               <ChevronDown />
             </Button>
           </section>
         )}
         {view === "overlay" && (
           <><OverlaySettings
-            overlayStyle={overlayStyle}
-            setOverlayStyle={setOverlayStyle}
-            size={size}
-            setSize={setSize}
+            appearance={appearance}
+            setAppearance={setAppearance}
             showSource={showSource}
             setShowSource={setShowSource}
             autoHide={autoHide}
@@ -675,7 +895,7 @@ export default function App() {
             opaque={opaque}
             setOpaque={setOpaque}
           />
-          {caps.nativePip && status === "live" && <Button onClick={()=>void startNativePip().catch(e=>setIssue(String(e)))}><PictureInPicture2/>Picture in Picture</Button>}
+          {caps.nativePip && status === "live" && <Button className="native-presenter-action" onClick={()=>void startNativePip().catch(e=>setIssue(String(e)))}><PictureInPicture2/>{caps.platform === "android" ? "Show floating captions" : "Picture in Picture"}</Button>}
           </>
         )}
         {view === "history" && (
@@ -697,13 +917,20 @@ export default function App() {
             {history.map((row) => (
               <article key={row.id}>
                 <div>
-                  <strong>{new Date(row.started_at).toLocaleString()}</strong>
+                  <strong>{row.session_summaries?.[0]?.content.title || new Date(row.started_at).toLocaleString()}</strong>
                   <p>
-                    {[...(row.segments || [])].sort(
+                    {row.session_summaries?.[0] ? new Date(row.started_at).toLocaleString() : [...(row.segments || [])].sort(
                       (a, b) => a.sequence - b.sequence,
                     )[0]?.source_text || "Caption session"}
                   </p>
                 </div>
+                <Button
+                  aria-label="Summarize session"
+                  title={row.session_summaries?.length ? "Open session summary" : "Summarize session"}
+                  onClick={() => setIntelligenceSession(row)}
+                >
+                  <Sparkles />
+                </Button>
                 <Button
                   aria-label="Export session"
                   title="Export text"
@@ -722,6 +949,18 @@ export default function App() {
             ))}
           </section>
         )}
+        {view === "providers" && (
+          <ProviderSettings
+            mode={providerMode}
+            keys={providerKeys}
+            active={active}
+            onMode={setProviderMode}
+            onKey={(provider: ProviderId, key: string) =>
+              setProviderKeys((current) => ({ ...current, [provider]: key }))
+            }
+            onSubscription={() => openPage("account")}
+          />
+        )}
         {view === "account" && (
           <section className="account-section" aria-label="Account settings">
             {session ? (
@@ -730,7 +969,7 @@ export default function App() {
                 <Button
                   disabled={active || billingPending}
                   className="icon-button" aria-label="Sign out" title="Sign out"
-                  onClick={() => void supabase?.auth.signOut()}
+                  onClick={() => void signOut()}
                 >
                   <LogOut aria-hidden="true"/>
                 </Button></div>
@@ -741,23 +980,6 @@ export default function App() {
                   disabled={active}
                   onBusy={setBillingPending}
                 />
-                {!caps.nativeSession && <section className="provider-key-settings" aria-label="Bring your own provider key">
-                  <h2>Use your own provider key</h2>
-                  <small>Sessions started with this key do not use your Audeeo allowance. The key stays in memory only and is cleared when Audeeo closes.</small>
-                  <label>
-                    <span>Provider</span>
-                    <select value={ownProvider} disabled={active} onChange={event => setOwnProvider(event.target.value as ProviderCredentials["provider"])}>
-                      <option value="openai">OpenAI</option>
-                      <option value="soniox">Soniox</option>
-                    </select>
-                  </label>
-                  <label>
-                    <span>API key</span>
-                    <input type="password" value={ownProviderKey} disabled={active} autoComplete="off" spellCheck={false}
-                      placeholder="Leave blank to use Audeeo allowance" onChange={event => setOwnProviderKey(event.target.value)} />
-                  </label>
-                  {ownProviderKey && <Button variant="outline" disabled={active} onClick={() => setOwnProviderKey("")}>Clear key</Button>}
-                </section>}
                 <Button
                   disabled={active || billingPending}
                   className="account-delete"
@@ -801,9 +1023,6 @@ export default function App() {
               </>
             ) : (
               <>
-                <p className="hint">
-                  Sign in for captions and synced history.
-                </p>
                 <div className="sign-in-actions">
                   <Button
                     variant="outline"
@@ -853,8 +1072,19 @@ export default function App() {
           </Button>
         </div>
       )}
-      {!expanded && <CaptionToolbar {...{silence,setSilence,input,setInput,active,captionMode,setCaptionMode,source,setSource,target,setTarget,sourceVolume,setSourceVolume,sourceMuted,setSourceMuted,translatedVolume,setTranslatedVolume,translatedMuted,setTranslatedMuted,status,playing}} detached={false} open={audioOpen} setOpen={setAudioOpen} systemAudio={caps.systemAudio} startDisabled={!!session && !caps.microphone && input === "microphone"} onToggle={()=>void(active ? stop() : start())}/>}
+      {!expanded && <CaptionToolbar
+        {...{silence,setSilence,input,setInput,active,captureSourceId,setCaptureSourceId,captionMode,setCaptionMode,source,setSource,target,setTarget,microphoneGain,setMicrophoneGain,microphoneMuted,setMicrophoneMuted,desktopGain,setDesktopGain,desktopMuted,setDesktopMuted,translatedVolume,setTranslatedVolume,translatedMuted,setTranslatedMuted,translationContext,setTranslationContext}}
+        onFillContextFromLink={session ? (url:string)=>generateContextFromLink(session,url,isTranslationTarget(target)?target:"en",providerKeys.openai.trim()||undefined) : undefined}
+        open={audioOpen}
+        setOpen={setAudioOpen}
+        systemAudio={caps.systemAudio}
+        applicationAudio={applicationAudio}
+        platform={caps.platform}
+        inputMix={inputMix}
+        translatedPlayback={translatedPlayback}
+      />}
     </main>
+    )}
     </>
   );
 }

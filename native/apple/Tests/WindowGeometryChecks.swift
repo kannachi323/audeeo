@@ -27,6 +27,8 @@ struct WindowGeometryChecks {
         assert(window.isMovable, "Native window must remain movable")
         assert(window.styleMask.contains(.fullSizeContentView) && window.titleVisibility == .hidden, "Native titlebar must remain visually hidden")
         assert(window.contentView?.subviews.filter { $0.identifier?.rawValue == "audeeo-overlay-grip" }.count == 1, "Repeated resize must not duplicate grips")
+        let grip = window.contentView?.subviews.first { $0.identifier?.rawValue == "audeeo-overlay-grip" }
+        assert((window.contentView?.bounds.maxY ?? 0) - (grip?.frame.maxY ?? 0) >= 6, "Move grip must leave the top resize border clear")
         let before = window.frame.origin
         nudgeMainWindow(raw, 10, 10)
         assert(abs(window.frame.minX - before.x - 10) < 1, "Keyboard movement must move horizontally")

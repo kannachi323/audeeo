@@ -9,6 +9,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "deploy": "npm run build && wrangler deploy --config wrangler.jsonc",
+    "deploy:dry": "npm run build && wrangler deploy --config wrangler.jsonc --dry-run",
     "lint": "eslint .",
     "preview": "vite preview"
   },
@@ -28,6 +30,7 @@
     "@types/react-dom": "^19.1.2",
     "@vitejs/plugin-react": "^4.4.1",
     "typescript": "~5.8.3",
-    "vite": "^6.3.5"
+    "vite": "^6.3.5",
+    "wrangler": "4.131.2"
   }
 }

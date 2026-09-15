@@ -9,13 +9,43 @@ export type Capabilities = {
   globalOverlay: boolean;
   nativePip?: boolean;
   nativeSession?: boolean;
+  applicationAudio?: boolean;
+  inputMix?: boolean;
+  translatedPlayback?: boolean;
 };
+export type CaptureApplication = { id: string; name: string };
+export type InputMode = "microphone" | "system" | "mixed";
+export type CaptureGains = { microphone: number; system: number };
+export type CaptureSources = {
+  microphone: string;
+  applications: string[];
+  captureSources?: CaptureApplication[];
+};
+
+export function systemAudioLabel(platform: string) {
+  if (platform === "macos" || platform === "windows")
+    return "Desktop audio (all apps)";
+  if (platform === "android") return "Device audio (allowed apps)";
+  if (platform === "ios") return "Device playback (system picker)";
+  return "Device audio";
+}
+
+export function systemAudioDescription(platform: string) {
+  if (platform === "macos" || platform === "windows")
+    return "Captures all desktop playback, or choose one active application below.";
+  if (platform === "android")
+    return "Captures playback that Android and the source app allow after system approval.";
+  if (platform === "ios")
+    return "Opens Apple’s system picker and captures the device playback you approve.";
+  return "Playback capture isn’t available on this device.";
+}
 export interface AudioInput {
   start(
     onChunk: (pcm: Int16Array) => void,
     onError: (error: string) => void,
   ): Promise<void>;
   stop(): Promise<void>;
+  setGains?(gains: CaptureGains): void;
 }
 export async function capabilities(): Promise<Capabilities> {
   if (!isTauri())
@@ -24,6 +54,9 @@ export async function capabilities(): Promise<Capabilities> {
       microphone: !!navigator.mediaDevices?.getUserMedia,
       systemAudio: false,
       globalOverlay: false,
+      applicationAudio: false,
+      inputMix: false,
+      translatedPlayback: true,
     };
   return invoke("platform_capabilities");
 }
@@ -31,7 +64,7 @@ export class NativeCapture implements AudioInput {
   private listeners: UnlistenFn[] = [];
   private cancelled = false;
   private resampler = new SourceResampler();
-  constructor(private input: "microphone" | "system") {}
+  constructor(private input: "microphone" | "system", private sourceId = "all") {}
   async start(
     onChunk: (pcm: Int16Array) => void,
     onError: (message: string) => void,
@@ -72,13 +105,18 @@ export class NativeCapture implements AudioInput {
       () =>
         failed(
           new Error(
-            "Microphone permission is pending. Allow access and start again.",
+            this.input === "system"
+              ? "Desktop audio permission is pending. Allow access and start again."
+              : "Microphone permission is pending. Allow access and start again.",
           ),
         ),
       20000,
     );
     try {
-      await invoke(this.input === "system" ? "start_system_audio_capture" : "start_microphone_capture");
+    await invoke(
+      this.input === "system" ? "start_system_audio_capture" : "start_microphone_capture",
+      this.input === "system" ? {sourceId: this.sourceId === "all" ? null : this.sourceId} : undefined,
+    );
       await permission;
     } finally {
       clearTimeout(timeout);

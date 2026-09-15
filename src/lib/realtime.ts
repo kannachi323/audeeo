@@ -2,16 +2,15 @@ import { defaultSilence, type SilenceSettings } from "../../shared/silence";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { Language, Segment } from "../../shared/pipeline";
+import type { ProviderCredentials } from "./providers";
+import type { SessionContext } from "../../shared/context";
 export type RelayEvent =
   | { type: "audio"; pcm: string; sampleRate: 24000 }
   | { type: "ready"; sessionId: string }
   | { type: "segment"; segment: Segment }
   | { type: "error"; message: string }
+  | { type: "status"; state: string; message: string }
   | { type: "finished"; reason: string };
-export type ProviderCredentials = {
-  provider: "openai" | "soniox";
-  apiKey: string;
-};
 export class RealtimeTranslationClient {
   private socket?: WebSocket;
   private finished?: Promise<void>;
@@ -28,6 +27,7 @@ export class RealtimeTranslationClient {
     targetLanguage: Language,
     silence: SilenceSettings = defaultSilence,
     credentials?: ProviderCredentials,
+    context?: SessionContext,
   ) {
     const url = new URL("/v1/realtime", this.endpoint);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
@@ -53,6 +53,7 @@ export class RealtimeTranslationClient {
             targetLanguage,
             silence,
             ...(credentials?.apiKey ? { provider: credentials.provider, providerKey: credentials.apiKey } : {}),
+            ...(context ? {context} : {}),
           }),
         ),
       );
@@ -132,25 +133,29 @@ export class RealtimeTranslationClient {
 }
 
 export interface CaptionConnection {
-  connect(token: string, source: Language, target: Language, silence?: SilenceSettings, credentials?: ProviderCredentials): Promise<void>;
+  connect(token: string, source: Language, target: Language, silence?: SilenceSettings, credentials?: ProviderCredentials, context?: SessionContext): Promise<void>;
   sendAudio(pcm: Int16Array): void;
   finish(): Promise<void>;
 }
 export class NativeRelayClient implements CaptionConnection {
   private unlisten?: UnlistenFn;
   private ended?: () => void;
+  private didFinish = false;
   constructor(
     private endpoint: string,
     private onEvent: (event: RelayEvent) => void,
     private owner: string,
     private save: boolean,
+    private input: "microphone" | "system" = "microphone",
+    private captureSourceId: string = "all",
   ) {}
-  async connect(token: string, source: Language, target: Language, silence: SilenceSettings = defaultSilence, _credentials?: ProviderCredentials) {
+  async connect(token: string, source: Language, target: Language, silence: SilenceSettings = defaultSilence, credentials?: ProviderCredentials, context?: SessionContext) {
+    this.didFinish = false;
     await new Promise<void>(async (resolve, reject) => {
       const timer = setTimeout(() => {
         reject(new Error("Native session timed out. Retry."));
         void this.finish();
-      }, 20000);
+      }, this.input === "system" ? 120000 : 20000);
       try {
         this.unlisten = await listen<string>(
           "native-session-event",
@@ -165,6 +170,7 @@ export class NativeRelayClient implements CaptionConnection {
               reject(new Error(e.message));
             }
             if (e.type === "finished") {
+              this.didFinish = true;
               this.ended?.();
               const unlisten = this.unlisten;
               this.unlisten = undefined;
@@ -182,6 +188,11 @@ export class NativeRelayClient implements CaptionConnection {
           save: this.save,
           silenceTimeout: silence.timeoutSeconds,
           silenceThreshold: silence.thresholdDbfs,
+          provider: credentials?.provider ?? "",
+          providerKey: credentials?.apiKey ?? "",
+          context: JSON.stringify(context ?? null),
+          input: this.input,
+          captureSourceId: this.captureSourceId === "all" ? "" : this.captureSourceId,
         });
       } catch (e) {
         clearTimeout(timer);
@@ -191,6 +202,12 @@ export class NativeRelayClient implements CaptionConnection {
   }
   sendAudio(_pcm: Int16Array) {} // The native capture owner sends audio directly.
   async finish() {
+    if (this.didFinish) {
+      const unlisten = this.unlisten;
+      this.unlisten = undefined;
+      unlisten?.();
+      return;
+    }
     let timer: ReturnType<typeof setTimeout> | undefined;
     const ended = new Promise<void>((resolve) => {
       this.ended = resolve;

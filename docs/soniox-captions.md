@@ -15,7 +15,7 @@ SONIOX_MODEL=stt-rt-v5
 
 Start the relay with `npm --prefix services/session-relay run dev`, then start/restart the development app with `npm run desktop` (or `npm run dev` for the browser). The relay reads the root `.env`; the app reads `RELAY_URL` at build/dev-server startup. An already installed release build retains its compiled relay URL.
 
-Set `CAPTION_PROVIDER=openai` and restart the relay to compare GPT using the same app. No client changes or key replacement are needed. The default when the setting is absent is OpenAI. Explicit WebSocket routes `/v1/realtime/soniox` and `/v1/realtime/openai` override that default for test clients; `/v1/realtime` uses the server setting. Each route requires only its own provider key, plus the existing account configuration.
+Audeeo-funded subscriptions use Soniox by default. Set `CAPTION_PROVIDER=openai` and restart the relay only when deliberately changing the funded provider. Users can override the funded default for an individual session from Settings → Providers by supplying their own OpenAI or Soniox key. Explicit WebSocket routes `/v1/realtime/soniox` and `/v1/realtime/openai` remain available for test clients; `/v1/realtime` uses either the validated personal-key selection or the server setting. Each route requires only its own provider key, plus the existing account configuration.
 
 This local configuration does not deploy anything. Production uses Cloudflare secrets/bindings, not the root `.env`. A production app build must use its production `RELAY_URL`.
 
@@ -23,6 +23,7 @@ This local configuration does not deploy anything. Production uses Cloudflare se
 
 - Native 16 kHz mono PCM16 is sent directly through the SDK; no GPT resampling is used.
 - Matching source/target languages enable transcription. Different languages enable one-way translated captions, including automatic source detection.
+- The leftmost Context icon in the caption toolbar opens a compact popover and stores one local configuration for the next session. Category, background text, names/terms and preferred source/target mappings are validated against a combined 10,000-character limit and sent through Soniox structured context. Context is not logged or synchronized.
 - Final tokens append once; provisional tokens replace the previous draft. Source and translation tokens are handled independently because translation can arrive later. Segment boundaries are buffering boundaries, not a guarantee of sentence-by-sentence alignment.
 - Endpoint events and bounded text chunks commit confirmed text to the app's existing history flow. Unconfirmed drafts are discarded when closing; they are never promoted into saved final text.
 - Stop waits for Soniox's final results, with a 15-second relay timeout. Provider failures are surfaced without forwarding raw SDK error payloads.
@@ -40,5 +41,7 @@ npm run test:soniox -- /tmp/soniox-test.pcm
 ```
 
 The test uses the actual backend adapter and your Soniox key. It streams the fixture twice (English transcription, then English-to-Chinese translation), checks that captions arrive before Stop and that final text is returned, and writes a credential-free report to `artifacts/soniox-streaming-verification.json`. This incurs normal provider usage. Ordinary `npm test` uses mocked transport and makes no provider calls.
+
+For a controlled context comparison, supply religious and philosophy PCM fixtures to `npm run benchmark:soniox-context -- religious.pcm philosophy.pcm`. The four short provider sessions compare context off/on and save credential-free term-hit results to `artifacts/soniox-context-benchmark.json`. Term-hit counts are a narrow regression signal, not a general translation-quality score.
 
 References: [Soniox Node SDK](https://soniox.com/docs/sdk/node-SDK), [WebSocket protocol](https://soniox.com/docs/api-reference/stt/websocket-api), [Cloudflare outbound WebSockets](https://developers.cloudflare.com/workers/examples/websockets/).

@@ -2,7 +2,7 @@ name: audeeo-app
 options:
   bundleIdPrefix: com.mattdev727
   deploymentTarget:
-    iOS: 15.0
+    iOS: 27.0
 fileGroups: [../../src]
 configs:
   debug: debug
@@ -59,6 +59,7 @@ targets:
         NSMicrophoneUsageDescription: "Audeeo needs access to your microphone to transcribe live speech into floating subtitles."
         UIBackgroundModes:
           - audio
+          - screen-capture
     entitlements:
       path: audeeo-app_iOS/audeeo-app_iOS.entitlements
     scheme:
@@ -87,6 +88,7 @@ targets:
       - sdk: Security.framework
       - sdk: UIKit.framework
       - sdk: WebKit.framework
+      - sdk: ScreenCaptureKit.framework
     preBuildScripts:
       - script: npm run -- tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths "${FRAMEWORK_SEARCH_PATHS:?}" --header-search-paths "${HEADER_SEARCH_PATHS:?}" --gcc-preprocessor-definitions "${GCC_PREPROCESSOR_DEFINITIONS:-}" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}
         name: Build Rust Code

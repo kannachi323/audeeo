@@ -1,15 +1,15 @@
 import {useEffect, useLayoutEffect, useRef, useState, type CSSProperties} from 'react';
 import {invoke} from '@tauri-apps/api/core';
 import type {SessionPhase} from '../lib/presentation';
+import {systemAudioLabel, type CaptureSources, type InputMode} from '../lib/platform';
 
-type Sources = {microphone: string; applications: string[]};
 export function captureSourceViewportWidth(available: number, natural: number, detailed: boolean) {
   return detailed ? Math.min(available, Math.max(1, Math.floor(natural * .9))) : available;
 }
-export function CaptureStatus({input, status, playing, platform}: {
-  input: 'microphone'|'system'; status: SessionPhase; playing: boolean; platform: string;
+export function CaptureStatus({input, status, playing, platform, captureSourceId = 'all'}: {
+  input: InputMode; status: SessionPhase; playing: boolean; platform: string; captureSourceId?: string;
 }) {
-  const [sources,setSources] = useState<Sources | null>(null);
+  const [sources,setSources] = useState<CaptureSources | null>(null);
   const copy = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const text = useRef<HTMLSpanElement>(null);
@@ -18,12 +18,12 @@ export function CaptureStatus({input, status, playing, platform}: {
   const [scrolling,setScrolling] = useState(false);
   useEffect(()=>{
     setSources(null);
-    if (platform !== 'macos' && platform !== 'windows') return;
+    if (platform !== 'macos' && platform !== 'windows' && platform !== 'android' && platform !== 'ios') return;
     let disposed=false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const refresh=async()=>{
       try {
-        const value=await invoke<Sources>('capture_sources');
+        const value=await invoke<CaptureSources>('capture_sources');
         if (!disposed && value && Array.isArray(value.applications)) setSources(value);
       } catch { if (!disposed) setSources(null); }
       finally {
@@ -34,8 +34,11 @@ export function CaptureStatus({input, status, playing, platform}: {
     void refresh();
     return ()=>{disposed=true;clearTimeout(timer);};
   },[platform,input,status]);
-  const apps=input === 'system' && status === 'live' ? sources?.applications ?? [] : [];
-  const name=input === 'microphone' ? sources?.microphone || 'Microphone' : apps.join(' · ') || 'All device audio';
+  const selected = captureSourceId === 'all' ? undefined : sources?.captureSources?.find(source=>source.id===captureSourceId)?.name;
+  const apps=input !== 'microphone' && status === 'live' && captureSourceId === 'all' ? sources?.applications ?? [] : [];
+  const playbackName=selected || apps.join(' · ') || systemAudioLabel(platform);
+  const microphoneName=sources?.microphone || 'Microphone';
+  const name=input === 'mixed' ? `${microphoneName} + ${playbackName}` : input === 'microphone' ? microphoneName : playbackName;
   useLayoutEffect(()=>{
     const measure=()=>{
       if (!copy.current || !viewport.current || !text.current) return;
@@ -60,8 +63,8 @@ export function CaptureStatus({input, status, playing, platform}: {
     const timer=setTimeout(()=>setScrolling(true),1200);
     return ()=>clearTimeout(timer);
   },[input,name,distance]);
-  const detail=status === 'connecting' ? 'Connecting' : status === 'stopping' ? 'Finishing captions' : status === 'live' ? (input === 'system' ? 'Capturing device audio' : 'Listening') : playing ? 'Playing translation' : 'Ready';
-  const description=`${detail} · ${input === 'system' && apps.length ? apps.join(', ') : name}`;
+  const detail=status === 'connecting' ? 'Connecting' : status === 'stopping' ? 'Finishing captions' : status === 'live' ? (input === 'mixed' ? 'Mixing microphone and desktop audio' : input === 'system' ? (platform === 'android' ? 'Capturing allowed device audio' : platform === 'ios' ? 'Capturing approved device playback' : 'Capturing desktop audio from active apps') : 'Listening') : playing ? 'Playing translation' : 'Ready';
+  const description=`${detail} · ${input !== 'microphone' && apps.length ? input === 'mixed' ? `${microphoneName}, ${apps.join(', ')}` : apps.join(', ') : name}`;
   return <div className={`capture-status ${status}`} role="status" aria-label={description} title={description}>
     <div ref={copy} className="capture-status-copy" aria-hidden="true">
       <div ref={viewport} className={`capture-source-window${distance > 0 ? ' overflowing' : ''}${scrolling ? ' scrolling' : ''}`} style={{width:viewportWidth, "--source-travel":`-${distance}px`, "--source-duration":`${Math.max(9,distance/18*2+3)}s`} as CSSProperties}><span ref={text} key={`${input}:${name}`} className="capture-source-name">{name}</span></div>

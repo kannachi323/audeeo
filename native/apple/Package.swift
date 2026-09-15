@@ -1,7 +1,7 @@
 // swift-tools-version: 5.9
 import PackageDescription
 let package = Package(
- name: "AudeeoNative", platforms: [.macOS(.v13), .iOS(.v15)],
+ name: "AudeeoNative", platforms: [.macOS(.v13), .iOS("27.0")],
  products: [.library(name: "AudeeoNative", type: .static, targets: ["AudeeoNative"])],
  dependencies: [.package(url: "https://github.com/RevenueCat/purchases-ios.git", exact: "5.89.0")],
  targets: [.target(name: "AudeeoNative", dependencies: [.product(name: "RevenueCat", package: "purchases-ios"), .product(name: "RevenueCatUI", package: "purchases-ios", condition: .when(platforms: [.iOS]))])]

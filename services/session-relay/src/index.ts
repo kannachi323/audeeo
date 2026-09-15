@@ -4,7 +4,9 @@ import { AudioEncoder, OpenAICaptions, sessionConfig } from "./openai";
 import { SonioxBackend } from "./soniox";
 import { SilenceGuard } from "./silence";
 import { connectUpstream } from "./connect";
-import { db, identity, refreshEntitlement, isDevelopmentUser, type Env } from "./backend";
+import { accountUsage, db, identity, refreshEntitlement, isDevelopmentUser, type Env } from "./backend";
+import { sessionContext, type SessionContext } from "../../../shared/context";
+import { answerQuestion, contextFromLink, generateSummary } from "./intelligence";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -100,6 +102,13 @@ export default {
         );
         return respond(await refreshEntitlement(env, user.id));
       }
+      if (url.pathname === "/v1/account/usage" && request.method === "GET") {
+        const user = await identity(
+          env,
+          (request.headers.get("Authorization") || "").replace(/^Bearer /, ""),
+        );
+        return respond(await accountUsage(env, user.id));
+      }
       if (url.pathname === "/v1/account" && request.method === "DELETE") {
         const user = await identity(
           env,
@@ -118,12 +127,39 @@ export default {
         if (!r.ok) throw new Error("Account deletion failed. Retry.");
         return respond({ deleted: true });
       }
+      const summaryMatch = url.pathname.match(/^\/v1\/sessions\/([0-9a-f-]+)\/summary$/i);
+      const questionMatch = url.pathname.match(/^\/v1\/sessions\/([0-9a-f-]+)\/questions$/i);
+      if (url.pathname === "/v1/context/from-link" && request.method === "POST") {
+        const user = await identity(env, (request.headers.get("Authorization") || "").replace(/^Bearer /, ""));
+        const raw = await request.text();
+        if (raw.length > 4096) return respond({ error: "Request is too large." }, 413);
+        let body: unknown;
+        try { body = JSON.parse(raw); } catch { return respond({ error: "Invalid request." }, 400); }
+        return respond(await contextFromLink(env, user.id, body));
+      }
+      if (request.method === "POST" && (summaryMatch || questionMatch)) {
+        const id = (summaryMatch || questionMatch)![1];
+        if (!uuid.test(id)) return respond({ error: "Invalid session." }, 400);
+        const user = await identity(env, (request.headers.get("Authorization") || "").replace(/^Bearer /, ""));
+        if (Number(request.headers.get("content-length") || 0) > 4096)
+          return respond({ error: "Request is too large." }, 413);
+        let body: unknown;
+        try {
+          const raw = await request.text();
+          if (raw.length > 4096) return respond({ error: "Request is too large." }, 413);
+          body = JSON.parse(raw);
+        }
+        catch { return respond({ error: "Invalid request." }, 400); }
+        return respond(summaryMatch
+          ? await generateSummary(env, user.id, id, body)
+          : await answerQuestion(env, user.id, id, body));
+      }
       if (!["/v1/realtime", "/v1/realtime/soniox", "/v1/realtime/openai"].includes(url.pathname))
         return respond({ error: "Not found" }, 404);
       if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket")
         return respond({ error: "WebSocket required" }, 426);
       const routeProvider = url.pathname === '/v1/realtime/soniox' ? 'soniox'
-        : url.pathname === '/v1/realtime/openai' ? 'openai' : (env.CAPTION_PROVIDER || 'openai');
+        : url.pathname === '/v1/realtime/openai' ? 'openai' : (env.CAPTION_PROVIDER || 'soniox');
       if (!['openai', 'soniox'].includes(routeProvider)) return respond({ error: 'Unknown caption provider' }, 503);
       if (!env.SUPABASE_SECRET_KEY)
         return respond({ error: "Service is not configured" }, 503);
@@ -197,7 +233,7 @@ export default {
           if (!started) {
             started = true;
             clearTimeout(authTimer);
-            if (typeof event.data !== "string" || event.data.length > 12000)
+            if (typeof event.data !== "string" || event.data.length > 20000)
               throw new Error("Invalid session request");
             const config = JSON.parse(event.data) as {
               type: string;
@@ -207,6 +243,7 @@ export default {
               silence?: unknown;
               provider?: "openai" | "soniox";
               providerKey?: string;
+              context?: SessionContext;
             };
             if (
               config.type !== "start" ||
@@ -217,6 +254,7 @@ export default {
               );
             const user = await identity(env, config.accessToken);
             const ownKey = typeof config.providerKey === "string" ? config.providerKey.trim() : "";
+            const context = sessionContext(config.context ?? {category:"general",text:"",terms:[],translationTerms:[]});
             if (ownKey.length > 512) throw new Error("Invalid provider key.");
             const provider = ownKey ? config.provider : routeProvider;
             if (!provider || !["openai", "soniox"].includes(provider))
@@ -248,7 +286,7 @@ export default {
               soniox = new SonioxBackend(providerKey, sessionId, config.sourceLanguage, config.targetLanguage,
                 segment => send({type: 'segment', segment}),
                 message => { error(message); void close('provider error'); },
-                () => void close('finished'), env.SONIOX_MODEL);
+                () => void close('finished'), env.SONIOX_MODEL, context);
               await soniox.connect();
               if (stopping) { soniox.close(); return; }
             } else {
@@ -400,7 +438,7 @@ export default {
     } catch (e) {
       return respond(
         { error: e instanceof Error ? e.message : "Service unavailable" },
-        503,
+        typeof (e as any)?.status === "number" ? (e as any).status : 503,
       );
     }
   },

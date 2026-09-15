@@ -51,6 +51,16 @@ it("keeps web checkout out of the native app", async () => {
   expect(mocks.native.mock.calls.map(call => call[0])).toEqual(["purchase:yearly", "paywall", "manage"]);
   expect(mocks.configure).not.toHaveBeenCalled();
 });
+it("uses RevenueCat web billing for the Windows desktop app", async () => {
+  mocks.isTauri.mockReturnValue(true);
+  const pkg = { identifier: "$rc_annual" };
+  mocks.getOfferings.mockResolvedValue({ current: { annual: pkg } });
+  mocks.purchase.mockResolvedValue({ customerInfo: pro });
+  const { subscriptionAction } = await import("../src/lib/subscriptions");
+  expect((await subscriptionAction(session, "yearly", "windows"))?.active).toBe(true);
+  expect(mocks.purchase).toHaveBeenCalledWith({ rcPackage: pkg, customerEmail: session.user.email });
+  expect(mocks.native).not.toHaveBeenCalled();
+});
 it("blocks account switching during checkout, then releases the lock on error", async () => {
   let fail!: (error: Error) => void;
   mocks.presentPaywall.mockImplementation(() => new Promise((_, reject) => { fail = reject; }));

@@ -3,41 +3,54 @@ import type { Session } from "@supabase/supabase-js";
 import { isTauri } from "@tauri-apps/api/core";
 import {Sparkles, RotateCcw, Settings2, ExternalLink} from "lucide-react";
 import { Button } from "./Button";
-import { accountRequest } from "../lib/account";
+import { syncSubscriptionUsage } from "../lib/account";
 import { customerInfo, subscriptionPlans, subscriptionAction, subscriptionManagementURL,
   type Plan, type SubscriptionInfo } from "../lib/subscriptions";
+import type { AccountUsage } from "../../shared/billing";
+
+function minutes(seconds: number) {
+  const value = seconds / 60;
+  return value > 0 && value < 10 && !Number.isInteger(value)
+    ? value.toFixed(1)
+    : Math.round(value).toLocaleString();
+}
 
 export function Subscriptions({ session, platform, disabled, onBusy }: {
   session: Session; platform: string; disabled: boolean; onBusy: (busy: boolean) => void;
 }) {
   const [info, setInfo] = useState<SubscriptionInfo | null>(null);
+  const [usage, setUsage] = useState<AccountUsage | null>(null);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const mounted = useRef(false), pending = useRef(false);
   const currentSession = useRef(session);
   currentSession.current = session;
-  const supported = !isTauri() || platform === "ios" || platform === "macos";
+  const supported = !isTauri() || platform === "ios" || platform === "macos" || platform === "windows";
   async function run(action?: "restore" | "paywall" | "manage" | "yearly" | "monthly") {
     if (pending.current) return;
     pending.current = true;
     setBusy(true); onBusy(true); setMessage("");
     try {
       const account = currentSession.current;
-      const result = action ? await subscriptionAction(account, action) : await customerInfo(account);
+      const result = action ? await subscriptionAction(account, action, platform) : await customerInfo(account, platform);
       if (!mounted.current) return;
       if (result) {
         setInfo(result);
+        setUsage(null);
         try {
-            await accountRequest("/v1/purchases/restore", "POST", currentSession.current);
-            if (mounted.current) setMessage(result.active ? "Audeeo Pro is active." : "No active Audeeo Pro subscription found.");
+            const synced = await syncSubscriptionUsage(currentSession.current);
+            if (mounted.current) {
+              setUsage(synced);
+              setMessage(synced.active ? "Audeeo Pro is active." : "No active Audeeo Pro subscription found.");
+            }
           } catch {
             if (mounted.current) setMessage("Subscription status retrieved, but account allowance could not be synced. Refresh purchases to retry; do not purchase again.");
           }
       }
       // Customer status remains available even if the offering is misconfigured.
       if (!action || action === "restore") {
-        const available = await subscriptionPlans(account);
+        const available = await subscriptionPlans(account, platform);
         if (mounted.current) setPlans(available);
       }
     } catch (error) {
@@ -61,8 +74,13 @@ export function Subscriptions({ session, platform, disabled, onBusy }: {
   const managementURL = subscriptionManagementURL(info);
   if (!supported) return <p>Subscriptions are available in Audeeo on the web and Apple devices.</p>;
   return <section className="subscription-settings" aria-label="Audeeo Pro subscription" aria-busy={busy}>
-    <div className="subscription-heading"><Sparkles aria-hidden="true"/><h2>Audeeo Pro</h2><span className="subscription-badge">{busy ? "Loading…" : info ? (info.active ? "Active" : "Free") : "Unavailable"}</span></div>
+    <div className="subscription-heading"><Sparkles aria-hidden="true"/><h2>Audeeo Pro</h2><span className="subscription-badge">{busy ? "Loading…" : info ? ((usage?.active ?? info.active) ? "Active" : "Free") : "Unavailable"}</span></div>
     {info?.expiresAt && <small>{info.willRenew ? "Renews" : "Access until"} {new Date(info.expiresAt).toLocaleDateString()}</small>}
+    {usage && <small className="subscription-usage">
+      {usage.unlimited
+        ? `${minutes(usage.usedSeconds)} minutes used · unlimited account`
+        : `${minutes(usage.usedSeconds)} of ${minutes(usage.includedSeconds ?? 0)} minutes used · ${minutes(usage.remainingSeconds ?? 0)} remaining`}
+    </small>}
     {!info?.active && <>
       {plans.map(plan => <Button key={plan.id} disabled={disabled || busy || !info} onClick={() => void run(plan.id)}>
         {plan.id === "yearly" ? "Yearly" : "Monthly"} · {plan.price} / {plan.id === "yearly" ? "year" : "month"}

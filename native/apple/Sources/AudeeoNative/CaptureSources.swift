@@ -21,7 +21,7 @@ private func sourceName(_ object: AudioObjectID) -> String? {
 public func captureSources() -> UnsafeMutablePointer<CChar>? {
     let system = AudioObjectID(kAudioObjectSystemObject)
     let microphone = sourceNumber(system, kAudioHardwarePropertyDefaultInputDevice).flatMap(sourceName) ?? "Microphone"
-    var applications = Set<String>()
+    var applicationObjects: [String: Set<AudioObjectID>] = [:]
     if #available(macOS 14.2, *) {
         var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyProcessObjectList, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
         var size: UInt32 = 0
@@ -34,12 +34,19 @@ public func captureSources() -> UnsafeMutablePointer<CChar>? {
                           let pid = sourceNumber(object, kAudioProcessPropertyPID), pid != UInt32(getpid()),
                           let app = NSRunningApplication(processIdentifier: pid_t(bitPattern: pid)),
                           let name = app.localizedName, !name.isEmpty else { continue }
-                    applications.insert(name)
+                    applicationObjects[name, default: []].insert(object)
                 }
             }
         }
     }
-    let result: [String: Any] = ["microphone": microphone, "applications": applications.sorted()]
+    let captureSources: [[String: String]] = applicationObjects.map { name, objects in
+        ["id": "macos:" + objects.sorted().map(String.init).joined(separator: ","), "name": name]
+    }.sorted { $0["name", default: ""] < $1["name", default: ""] }
+    let result: [String: Any] = [
+        "microphone": microphone,
+        "applications": captureSources.compactMap { $0["name"] },
+        "captureSources": captureSources,
+    ]
     guard let json = try? JSONSerialization.data(withJSONObject: result), let string = String(data: json, encoding: .utf8) else { return nil }
     return strdup(string)
 }

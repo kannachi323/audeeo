@@ -170,7 +170,9 @@ public func windowMode(_ raw: UnsafeMutableRawPointer, _ overlay: Bool, _ clear:
         content.layer?.cornerRadius = 0
         let existing = content.subviews.first { $0.identifier?.rawValue == "audeeo-overlay-grip" }
         if existing == nil {
-            let grip = PanelDragRegion(frame: NSRect(x: content.bounds.midX - 24, y: content.bounds.height - 18, width: 48, height: 24))
+            // Leave the native top-edge resize band unobstructed. The grip sits
+            // just inside the content instead of intercepting border drags.
+            let grip = PanelDragRegion(frame: NSRect(x: content.bounds.midX - 24, y: content.bounds.height - 30, width: 48, height: 24))
             grip.identifier = NSUserInterfaceItemIdentifier("audeeo-overlay-grip")
             grip.autoresizingMask = [.minXMargin, .maxXMargin, .minYMargin]
             grip.setAccessibilityLabel("Drag to move captions; Command Option arrow keys also move the window")

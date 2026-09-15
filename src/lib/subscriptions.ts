@@ -24,6 +24,12 @@ function summarize(info: CustomerInfo): SubscriptionInfo {
 let web: WebPurchases | undefined;
 let owner: string | undefined;
 let busy = false;
+function nativeBilling(platform?: string) {
+  if (!isTauri()) return false;
+  // Preserve the native default for callers that do not know their platform.
+  // Windows desktop uses RevenueCat Web Billing inside the Tauri WebView.
+  return platform === undefined || platform === "ios" || platform === "macos";
+}
 async function client(session: Session) {
   if (!config.revenueCatWebKey) throw new Error("Web subscriptions are not configured.");
   const { Purchases } = await import("@revenuecat/purchases-js");
@@ -42,14 +48,14 @@ async function exclusive<T>(operation: () => Promise<T>): Promise<T> {
   busy = true;
   try { return await operation(); } finally { busy = false; }
 }
-export function customerInfo(session: Session): Promise<SubscriptionInfo> {
-  return exclusive(async () => isTauri()
+export function customerInfo(session: Session, platform?: string): Promise<SubscriptionInfo> {
+  return exclusive(async () => nativeBilling(platform)
     ? nativePurchase("info", session)
     : summarize(await (await client(session)).getCustomerInfo()));
 }
-export function subscriptionPlans(session: Session): Promise<Plan[]> {
+export function subscriptionPlans(session: Session, platform?: string): Promise<Plan[]> {
   return exclusive(async () => {
-    if (isTauri()) return (await nativePurchase("offer", session)).plans;
+    if (nativeBilling(platform)) return (await nativePurchase("offer", session)).plans;
     const offering = (await (await client(session)).getOfferings()).current;
     return (["yearly", "monthly"] as const).flatMap(id => {
       const pkg = id === "yearly" ? offering?.annual : offering?.monthly;
@@ -58,9 +64,9 @@ export function subscriptionPlans(session: Session): Promise<Plan[]> {
     });
   });
 }
-export function subscriptionAction(session: Session, action: "restore" | "paywall" | "manage" | "yearly" | "monthly") {
+export function subscriptionAction(session: Session, action: "restore" | "paywall" | "manage" | "yearly" | "monthly", platform?: string) {
   return exclusive(async (): Promise<SubscriptionInfo | null> => {
-    if (isTauri()) {
+    if (nativeBilling(platform)) {
       const result = await nativePurchase(action === "yearly" || action === "monthly" ? `purchase:${action}` : action, session);
       return result.cancelled ? null : result;
     }

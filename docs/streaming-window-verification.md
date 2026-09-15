@@ -1,5 +1,7 @@
 # Streaming, routing, and one-window verification — September 13, 2026
 
+> Historical note: the iOS compile result in this record predates the iOS 27 ScreenCaptureKit-only capture path and does not verify it.
+
 ## Live OpenAI API checks
 
 The server key in the existing local environment was used without exposing it. Input was macOS-synthesized English speech, repeated to 56.161 seconds and sent as 24 kHz mono PCM16 at real-time pace. This was direct API testing, not microphone capture or an authenticated Audeeo session.
@@ -13,7 +15,7 @@ Machine-readable evidence: [OpenAI report](../artifacts/openai-streaming-verific
 
 ## Automated checks and builds
 
-- All 69 tests across 16 TypeScript test files pass. The suite covers transcript reconciliation/history, capture resampling, measured-suffix selection, independent volume/mute commands, authenticated one-window navigation, capture preserved while Settings is open, and overlay level retained until playback drains.
+- All 150 tests across 31 TypeScript test files pass. The suite covers transcript reconciliation/history, capture resampling, the bounded 20 ms desktop PCM mixer, independent model-input gain/mute, authenticated one-window navigation, capture preserved while Settings is open, and overlay level retained until playback drains.
 - Mocked relay tests stream 60 seconds without a commit, commit once at stop, retain final corrections, forward audio during translation close, and clear lifecycle timers. Authentication/billing regression tests continue to pass; these use mocks, not live purchases.
 - React production build, Worker typecheck, macOS Rust build/check, Swift package build (including the existing RevenueCat adapter), and iOS bridge compile were run successfully. No deployed service or database was modified.
 - AppKit geometry checks pass: animated expansion/collapse preserves the top edge and user width, clamps to the screen, and preserves keyboard movement and a single grip.
@@ -23,7 +25,7 @@ Machine-readable evidence: [OpenAI report](../artifacts/openai-streaming-verific
 
 ## Visual checks
 
-The explicitly labelled browser fixture uses production caption and audio-control components, without authentication or network audio. It was inspected at widths 400 and 360 with caption size 40. Both English and Mandarin retained their newest visible text within two total lines. A canvas-based wrapping mismatch was found and fixed using actual DOM layout. Native dropdowns, separate mute controls, keyboard tab navigation, and translated-volume arrow-key adjustment were exercised.
+The explicitly labelled browser fixture uses production caption and audio-control components, without authentication or network audio. It was inspected at widths 400 and 360 with caption size 40. Both English and Mandarin retained their newest visible text within two total lines. A canvas-based wrapping mismatch was found and fixed using actual DOM layout. Native dropdowns, separate microphone/desktop model-input mute controls, keyboard tab navigation, and translated-volume arrow-key adjustment were exercised.
 
 The actual signed Audeeo app was launched, but computer-use lookup resolved its name/path to the obsolete `com.matthewchen.audeeo` and rejected the running correct bundle ID. No bundle ID or credential service was changed to work around that tooling problem. Consequently this run does **not** claim a successful full native visual/audio session.
 
@@ -32,7 +34,7 @@ The actual signed Audeeo app was launched, but computer-use lookup resolved its 
 - Core Audio permission grant and real-source capture; capture while source gain is zero; audible separation of the two gains; no doubled source audio or recapture of Audeeo output.
 - Output-device unplug/switch, forced route failure, quit/crash, and permission revocation while capture is active. The cleanup paths and process exclusion are implemented, but were not exercised with a real tapped source.
 - Actual transparent WebView overlay appearance over other apps/full-screen spaces, live Settings transitions, VoiceOver, and multiple displays.
-- Audible translated speech, acoustic echo handling with microphone input (headphones recommended), long runs near provider session/context limits, and physical iOS/browser audio playback.
+- Audible translated speech, acoustic echo and long-run clock-drift handling for the simultaneous desktop microphone/playback mix (headphones recommended), long runs near provider session/context limits, and physical iOS/browser audio playback.
 - No live authentication, purchase, allowance deduction, or production deployment was performed as part of these checks. Existing development-account authorization and billing paths were preserved.
 
 Borderless panel follow-up: the single macOS window now remains borderless and resizable in both idle and active modes. Session activity controls its level, not its titlebar. The native drag grip is available on every page, alongside existing keyboard movement. A top-right Lucide Audio Lines button returns to captions without changing session state. Transparent active captions and solid Settings retain the same window/content. Automated AppKit mode and geometry checks and 80 frontend/relay tests passed; the signed desktop bundle was rebuilt. This follow-up did not repeat physical capture or live provider testing.

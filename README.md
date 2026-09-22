@@ -43,8 +43,7 @@ npm run desktop
 Use `npm run dev` for the browser UI. Native audio capture requires the app.
 For mobile builds, see the [mobile guide](docs/mobile.md). Native signing must use your own credentials.
 
-<details>
-<summary>Backend development and checks</summary>
+### Backend development and checks
 
 Install the relay dependencies:
 
@@ -64,8 +63,6 @@ See [backend setup](docs/supabase.md) for account and database configuration.
 npm run check
 npm run test:database
 ```
-
-</details>
 
 ## Contributing
 

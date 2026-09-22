@@ -1,8 +1,10 @@
-# RevenueCat subscriptions: Audeeo web and iOS
+> Current minute-pack implementation and rollout: [minute-packs.md](minute-packs.md). Pro includes 600 **usage** minutes monthly; optional speech uses 3×.
+
+# RevenueCat subscriptions: Audeeo web and Apple
 
 The approved launch prices are **$8 USD monthly** and **$80 USD yearly**. Both products grant the same `audeeo_pro` entitlement; yearly billing renews the monthly usage allowance at purchase anniversaries.
 
-Audeeo keeps its React/Tauri interface. Browser checkout uses `@revenuecat/purchases-js` 1.60.1; Apple apps use the existing Swift bridge with RevenueCat 5.89.0. iOS also links RevenueCatUI for native Paywalls and Customer Center. SwiftUI is not required for the app interface.
+Audeeo keeps its React/Tauri interface. Browser checkout uses `@revenuecat/purchases-js` 1.60.1; Mac App Store builds use the Swift bridge with RevenueCat 5.89.0.
 
 ## 1. Install and configure
 
@@ -10,25 +12,34 @@ Audeeo keeps its React/Tauri interface. Browser checkout uses `@revenuecat/purch
 npm install --save @revenuecat/purchases-js
 ```
 
-The package and npm lockfile are updated. `native/apple/Package.swift` pins the Apple SDK and declares RevenueCatUI for iOS.
+The package and npm lockfile are updated. `native/apple/Package.swift` pins the macOS-compatible RevenueCat SDK.
 
 The root `.env` uses Audeeo's explicit Vite configuration allowlist (not `VITE_*`):
 
 ```dotenv
 # Public SDK keys; safe to bundle. Use the RevenueCat Billing `rcb_` key in production.
 REVENUECAT_WEB_KEY=rcb_REPLACE_WITH_YOUR_PUBLIC_WEB_KEY
-# For Test Store development only, this can use the same test_ key.
+# Real web checkout testing uses the separate RevenueCat Billing sandbox key.
+REVENUECAT_WEB_SANDBOX_KEY=rcb_sb_REPLACE_WITH_YOUR_SANDBOX_KEY
+AUDEEO_DISTRIBUTION=app-store
+AUDEEO_BILLING_ENVIRONMENT=sandbox
 # For actual Apple StoreKit sandbox/TestFlight/App Store use the Apple app's appl_ key.
 REVENUECAT_APPLE_KEY=appl_REPLACE_WITH_YOUR_APPLE_PUBLIC_KEY
 ```
 
-The local production configuration uses the Audeeo RevenueCat Billing public key. Use the Test Store key only for isolated development. Restart Vite after changing keys. Never put a RevenueCat secret key in either public variable. Test Store transactions do not exercise Apple's payment system; passing them is not proof of StoreKit readiness.
+Production web configuration must use the Audeeo RevenueCat Billing public key (`rcb_`). Use the Test Store key only for isolated development; a configured live catalog does not change the key embedded in an existing build. Restart Vite after changing keys. Never put a RevenueCat secret key in either public variable. Test Store transactions do not exercise Apple's payment system; passing them is not proof of StoreKit readiness.
 
 References: [Web SDK installation](https://www.revenuecat.com/docs/getting-started/installation/web-sdk), [SDK configuration](https://www.revenuecat.com/docs/getting-started/configuring-sdk), [Test Store](https://www.revenuecat.com/docs/test-and-launch/sandbox/test-store).
 
 ## 2. Configure products and an offering in RevenueCat
 
-The web dashboard setup is complete: RevenueCat Billing is connected to the Audeeo live Stripe account, and the current `default` offering includes both Test Store and web products.
+RevenueCat Billing is connected to the Audeeo live Stripe account. On September 15, 2026, the `default` offering was verified and updated to include Apple, web, and Test Store products. The existing web prices were verified as $8/month and $80/year. All six products grant `audeeo_pro`.
+
+Both Apple credential connections are now valid. The existing App Store monthly subscription is `AUDEEO_MONTHLY_1` (Apple ID `6811513313`); it was imported into RevenueCat and replaces the unused `audeeo_pro_monthly` draft. That draft is inactive and is no longer in the offering. The annual product `audeeo_pro_yearly` (Apple ID `6812601915`) was created in App Store Connect. Both belong to subscription group `22380999` (`Audeeo Pro`) at service level 1 and grant the same entitlement.
+
+Apple prices were saved and read back through App Store Connect: exactly $8 USD monthly and $80 USD yearly, with Apple's equivalent local prices and availability verified in all 175 storefronts for both products. The old monthly $14.99 USD price was replaced. No purchase was executed.
+
+English subscription/group metadata and review notes are configured. Both Apple subscriptions still require a real purchase-screen screenshot for App Review and submission with the first app version. They have not been approved or tested with a StoreKit purchase. Catalog configuration alone does not establish release readiness.
 
 1. Use one RevenueCat project for Audeeo's Apple and web apps. Add the Apple app with bundle ID `com.mattdev727.audeeo` and connect App Store Connect credentials.
 2. Create entitlement **`audeeo_pro`**.
@@ -38,15 +49,15 @@ The web dashboard setup is complete: RevenueCat Billing is connected to the Aude
 
 | Display name | Product identifier | Standard RevenueCat package | SDK property |
 |---|---|---|---|
-| Yearly | `audeeo_pro_yearly_web` (web) / `yearly` (Test Store) | `$rc_annual` | `annual` |
-| Monthly | `audeeo_pro_monthly_web` (web) / `monthly` (Test Store) | `$rc_monthly` | `monthly` |
+| Yearly | `audeeo_pro_yearly` (Apple) / `audeeo_pro_yearly_web` (web) / `yearly` (Test Store) | `$rc_annual` | `annual` |
+| Monthly | `AUDEEO_MONTHLY_1` (Apple) / `audeeo_pro_monthly_web` (web) / `monthly` (Test Store) | `$rc_monthly` | `monthly` |
 
 If Apple products already have other identifiers, keep those and map them to the same packages. The code selects packages, not hardcoded store product IDs. Assign your chosen prices, currencies, and billing durations in each billing provider. Prices in the app come from the SDK.
 
-6. Create and publish a RevenueCat Paywall on the current offering. Include the two packages, terms, privacy policy, and appropriate purchase/restore controls. Use native App Store purchase buttons for the iOS offering. Web and native paywall designs can differ.
-7. Configure Customer Center for the iOS app in RevenueCat. Availability depends on your RevenueCat plan. On web, Audeeo links to the customer information's `managementURL`; billing emails provide a fallback portal link.
+6. Verify the current offering contains both subscription packages, localized prices, terms, privacy policy, and purchase/restore controls.
+7. On web, Audeeo links to the customer information’s `managementURL`; billing emails provide a fallback portal link.
 
-References: [Offerings](https://www.revenuecat.com/docs/offerings/overview), [Paywalls](https://www.revenuecat.com/docs/tools/paywalls), [iOS Customer Center](https://www.revenuecat.com/docs/tools/customer-center/customer-center-integration-ios), [Web customer portal](https://www.revenuecat.com/docs/web/web-billing/customer-portal).
+References: [Offerings](https://www.revenuecat.com/docs/offerings/overview), [Paywalls](https://www.revenuecat.com/docs/tools/paywalls), [Web customer portal](https://www.revenuecat.com/docs/web/web-billing/customer-portal).
 
 ## 3. App implementation
 
@@ -165,27 +176,20 @@ The restore response and authenticated `GET /v1/account/usage` return a server-d
 
 The existing product configuration determines included audio minutes. Yearly billing now resets the same monthly allowance at UTC purchase anniversaries, with month-end clamping; it does not accidentally stretch one month's minutes across a year. Refunds, expiration, transfers, and renewals must be delivered to the authenticated webhook. Choose RevenueCat's restore/transfer policy deliberately for account ownership. Do not store a persistent `isPro` boolean as authorization.
 
-## 6. Build and test iOS
+## 6. Build and test macOS
 
 ```sh
-# Compiles native RevenueCat + RevenueCatUI and produces the static archive/resources.
-sh scripts/apple-native-build.sh ios-simulator
-sh scripts/apple-native-build.sh ios
-
-# Tauri now builds the native archive automatically if no override is supplied.
-npm run tauri -- ios build --debug --target aarch64-sim --no-sign --ci
+sh scripts/apple-native-build.sh macos
+npm run build
+cargo build --manifest-path src-tauri/Cargo.toml
 ```
 
-`src-tauri/build.rs` automatically builds and links the actual SDK on both macOS and iOS, including `npm run desktop`; a prebuilt archive override is optional. The generated Xcode project's post-build step copies both `RevenueCat_RevenueCat.bundle` and `RevenueCat_RevenueCatUI.bundle` inside the app before signing. If overriding `AUDEEO_NATIVE_ARCHIVE`, keep these bundles in the same directory as that archive, for the matching platform. Preserve the resource-copy phase when regenerating the Tauri iOS project; `project.yml` includes it.
+Tauri builds the native SDK automatically. Release packaging must include the
+RevenueCat resources and privacy manifest before signing; see
+[Mac App Store packaging](mac-app-store.md).
 
-Before App Store submission, replace the Apple Test Store key with the Apple public key, complete App Store Connect subscription metadata, agreements and banking requirements, and verify the following with StoreKit sandbox/TestFlight:
-
-- Monthly and yearly purchases; local prices; transaction cancellation and payment failure.
-- Pro access after purchase and after relaunch; restore on another device with the same account.
-- Renewal, expiry, billing issue, refund, and cancellation with access retained until expiry.
-- Native Paywall close/purchase/restore and Customer Center dismissal/management.
-- Sign-out/sign-in to a different account with no previous customer's Pro state shown.
-- Server allowance synchronization and monthly resets for yearly subscriptions.
-- Resource loading in an installed signed build with the development build folders absent.
-
-The local SDK build and automated tests cannot verify App Store configuration or execute a real StoreKit transaction. That requires the Apple key, configured products, and a sandbox tester. See [Apple sandbox testing](https://www.revenuecat.com/docs/test-and-launch/sandbox/apple-app-store).
+Verify monthly/yearly purchases, localized prices, cancellation, restoration,
+renewal/expiry, account switching, and server allowance synchronization in a
+signed build with an Apple sandbox tester. Test installed resource loading with
+the development build folders absent. Local compilation does not verify StoreKit
+transactions or App Store configuration.

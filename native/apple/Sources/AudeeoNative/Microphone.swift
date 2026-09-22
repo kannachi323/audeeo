@@ -14,11 +14,6 @@ public final class MicrophoneCapture {
     }
     public func start(onPCM: @escaping (Data) -> Void) throws {
         guard !installed else { return }
-        #if os(iOS)
-        let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP])
-        try session.setActive(true)
-        #endif
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0,
@@ -43,12 +38,9 @@ public final class MicrophoneCapture {
         installed = true
         do { try engine.start() } catch { stop(); throw error }
     }
-    public func stop(deactivateSession: Bool = true) {
+    public func stop() {
         engine.stop()
         if installed { engine.inputNode.removeTap(onBus: 0); installed = false }
-        #if os(iOS)
-        if deactivateSession { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
-        #endif
     }
     deinit { if let observer { NotificationCenter.default.removeObserver(observer) }; stop() }
 }

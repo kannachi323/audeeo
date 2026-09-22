@@ -5,15 +5,17 @@
   "compatibility_date": "2026-07-17",
   "compatibility_flags": ["nodejs_compat"],
   "observability": {
-    "enabled": false
+    "enabled": true
   },
+  "triggers": {"crons": ["* * * * *"]},
   "vars": {
     "MAX_SESSION_SECONDS": "1800",
-    "CAPTION_PROVIDER": "soniox",
     "SONIOX_MODEL": "stt-rt-v5",
     "SUMMARY_MODEL": "gpt-5.6-luna",
     "REVENUECAT_ENTITLEMENT": "audeeo_pro",
-    "ALLOWED_ORIGINS": "http://localhost:1420,tauri://localhost,http://tauri.localhost,https://audeeo.app,https://www.audeeo.app"
+    "REVENUECAT_PROJECT_ID": "696fbac4",
+    "MINUTE_PACKS_ENABLED": "false",
+    "ALLOWED_ORIGINS": "http://localhost:1420,http://localhost:5173,http://127.0.0.1:5173,tauri://localhost,http://tauri.localhost,https://audeeo.app,https://www.audeeo.app"
   },
   "workers_dev": false,
   "preview_urls": false,

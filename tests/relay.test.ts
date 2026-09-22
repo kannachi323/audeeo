@@ -199,13 +199,14 @@ it("validates the user JWT with the publishable key before deleting via the secr
     headers: { Authorization: `Bearer ${token}` },
   }), env);
   expect(response.status).toBe(200);
-  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(fetch).toHaveBeenCalledTimes(5);
   expect(fetch.mock.calls[0][0]).toBe(`${env.SUPABASE_URL}/auth/v1/user`);
   const userHeaders = new Headers(fetch.mock.calls[0][1]?.headers);
   expect(userHeaders.get("apikey")).toBe(env.SUPABASE_PUBLISHABLE_KEY);
   expect(userHeaders.get("Authorization")).toBe(`Bearer ${token}`);
-  expect(fetch.mock.calls[1][0]).toBe(`${env.SUPABASE_URL}/auth/v1/admin/users/${owner}`);
-  const adminHeaders = new Headers(fetch.mock.calls[1][1]?.headers);
+  const deletion = fetch.mock.calls.find(([url,options])=>url === `${env.SUPABASE_URL}/auth/v1/admin/users/${owner}` && options?.method === "DELETE")!;
+  expect(deletion).toBeTruthy();
+  const adminHeaders = new Headers(deletion[1]?.headers);
   expect(adminHeaders.get("apikey")).toBe(env.SUPABASE_SECRET_KEY);
   expect(adminHeaders.has("Authorization")).toBe(false);
 });
@@ -246,4 +247,13 @@ it('sets ArrayBuffer delivery before accepting binary audio', async () => {
  });
  await relay.fetch(new Request('https://relay.test/v1/realtime', {headers:{Upgrade:'websocket'}}), {...env,OPENAI_API_KEY:'test'});
  expect(observed).toBe('arraybuffer');
+});
+
+it('confirms a pack only after the requested quantity is credited',async()=>{
+ let quantity=1;
+ vi.stubGlobal('fetch',vi.fn(async(url)=>Response.json(String(url).includes('/auth/v1/user')?{id:'11111111-1111-4111-8111-111111111111'}:[{environment:'PRODUCTION',refunded_at:null,quantity}])));
+ const request=()=>new Request('https://relay.test/v1/purchases/status?transaction=tx&product=audeeo_minutes_60&quantity=3',{headers:{Authorization:`Bearer e30.${btoa(JSON.stringify({sub:'11111111-1111-4111-8111-111111111111',exp:Math.floor(Date.now()/1000)+600}))}.sig`}});
+ expect(await (await relay.fetch(request(),env)).json()).toEqual({status:'pending'});
+ quantity=3;
+ expect(await (await relay.fetch(request(),env)).json()).toEqual({status:'confirmed',environment:'PRODUCTION'});
 });

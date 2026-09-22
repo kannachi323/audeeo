@@ -18,7 +18,7 @@ it('exposes only named public settings, never provider secrets or VITE-prefixed 
     const resolved = await resolveConfig({}, 'build', 'production')
     const publicConfig = JSON.parse(resolved.define!.__AUDEEO_CONFIG__ as string)
     expect(Object.keys(publicConfig).sort()).toEqual([
-      'authRedirectUrl', 'relayUrl', 'revenueCatAppleKey', 'revenueCatWebKey', 'supabasePublishableKey', 'supabaseUrl',
+      'authRedirectUrl', 'billingEnvironment', 'distribution', 'relayUrl', 'revenueCatAppleKey', 'revenueCatWebKey', 'supabasePublishableKey', 'supabaseUrl',
     ])
     expect(publicConfig.supabaseUrl).toBe(overrides.SUPABASE_URL)
     expect(publicConfig.supabasePublishableKey).toBe(overrides.SUPABASE_PUBLISHABLE_KEY)

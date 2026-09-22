@@ -1,4 +1,6 @@
-import { Check } from 'lucide-react'
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '../components/ui/accordion'
+import {MinutePacks} from "../components/MinutePacks"
+import {config} from '../lib/config'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { useAuth } from '../AuthContext'
@@ -42,7 +44,7 @@ export function Pricing() {
       if (!result) return
       setIsPro(result.info.active)
       setMessage(result.allowanceSynced
-        ? 'Audeeo Pro is active. Sign in to the app with this same account.'
+        ? config.billingEnvironment==='sandbox' ? 'Test subscription confirmed. This does not grant live usage.' : 'Audeeo Pro is active. Sign in to the app with this same account.'
         : 'Audeeo Pro is active, but your usage allowance could not be synced. Refresh your status before trying to purchase again.')
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : 'Checkout failed. Please try again.')
@@ -55,21 +57,25 @@ export function Pricing() {
   const yearly = plans.find((plan) => plan.id === 'yearly')
 
   return (
-    <div className="public-page">
+    <div className="public-page pricing-page">
       <header className="public-page-header centered">
         <h1>Pricing</h1>
+        <p>Open source. Bring your own API key or subscribe.</p>
+        {config.billingEnvironment==='sandbox' && <p role="status">Sandbox payments · Test cards only. No real charges. Test purchases do not add live usage.</p>}
       </header>
       <section className="pricing-grid" aria-label="Audeeo plans">
-        <article className="pricing-card">
-          <p className="page-label">Free</p><h2>Audeeo</h2><p className="price">Free</p><p className="price-note">Development access</p>
-          <ul><li><Check />Live microphone captions</li><li><Check />Caption overlay</li><li><Check />Local display preferences</li></ul>
-          <Link className="button outline" to={session ? '/' : '/register'}>{session ? 'Open Audeeo' : 'Create account'}</Link>
-        </article>
+        {session ? <MinutePacks key={session.user.id} session={session}/> : <article className="pricing-card">
+          <h2>Minute packs</h2>
+          <p className="plan-description">Pay once. Minutes never expire.</p>
+          <dl className="pack-prices"><div><dt>60 minutes</dt><dd>$3</dd></div><div><dt>180 minutes</dt><dd>$8</dd></div><div><dt>600 minutes</dt><dd>$20</dd></div></dl>
+          <Link className="button outline" to="/signin" state={{from:'/pricing'}}>Buy minutes</Link>
+        </article>}
         <article className="pricing-card featured">
-          <div className="pricing-heading"><div><p className="page-label">Paid</p><h2>Audeeo Pro</h2></div><span>Pro</span></div>
+          <h2>Audeeo Pro</h2>
+          <p className="plan-description">600 usage minutes each month.</p>
           <p className="price">{monthly?.price ?? LAUNCH_MONTHLY_PRICE}<small> / month</small></p>
-          <p className="price-note">{yearly?.price ?? LAUNCH_YEARLY_PRICE} yearly option available</p>
-          <ul><li><Check />Everything in Audeeo</li><li><Check />Translation and generated audio</li><li><Check />Subscription status across devices</li></ul>
+          <p className="price-note">{yearly?.price ?? LAUNCH_YEARLY_PRICE} / year</p>
+          <p className="plan-renewal">Renews automatically. Cancel anytime.</p>
           {session ? (
             <div className="pricing-actions">
               {isPro ? <button className="button primary" type="button" disabled>Current plan</button> : <>
@@ -78,11 +84,19 @@ export function Pricing() {
                 {!loading && plans.length === 0 && <button className="button primary" type="button" disabled>Subscriptions unavailable</button>}
               </>}
             </div>
-          ) : <Link className="button primary" to="/signin" state={{ from: '/pricing' }}>Sign in to subscribe on the web</Link>}
+          ) : <Link className="button primary" to="/signin" state={{ from: '/pricing' }}>Subscribe</Link>}
         </article>
       </section>
       {message && <p className="pricing-message" role="status">{message}</p>}
-      <p className="pricing-disclaimer">Web purchases unlock Audeeo Pro in the app when you sign in with the same account. Subscriptions renew automatically until cancelled.</p>
+      <Accordion className="pricing-details" type="single" collapsible>
+        <AccordionItem value="minutes">
+          <AccordionTrigger>How minutes work</AccordionTrigger>
+          <AccordionContent>
+          <p>Captions and text translation use 1× minutes; spoken translation uses 3×.</p>
+          <p>Pro minutes reset monthly without rollover. Purchased minutes never expire.</p>
+        </AccordionContent>
+        </AccordionItem>
+      </Accordion>
     </div>
   )
 }

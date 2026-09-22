@@ -1,0 +1,10 @@
+{
+  "bundle": {
+    "targets": ["dmg"],
+    "macOS": {
+      "signingIdentity": "Developer ID Application: Matthew Chen (7D6BVN4W87)",
+      "entitlements": "Entitlements.direct.plist",
+      "hardenedRuntime": true
+    }
+  }
+}

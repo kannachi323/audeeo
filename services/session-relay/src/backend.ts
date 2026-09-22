@@ -1,7 +1,12 @@
+import {reconcilePackPurchases,synchronizePackPurchases} from "./packs";
 import type { AccountUsage, SubscriptionSync } from "../../../shared/billing";
 
 export interface Env {
+  APPLE_CLIENT_ID?: string;
+  APPLE_CLIENT_SECRET?: string;
   DEV_USER_IDS?: string;
+  BILLING_TEST_USER_IDS?: string;
+  APP_REVIEW_USER_IDS?: string;
   SUPABASE_URL: string;
   SUPABASE_PUBLISHABLE_KEY: string;
   SUPABASE_SECRET_KEY: string;
@@ -9,8 +14,10 @@ export interface Env {
   SUMMARY_MODEL?: string;
   SONIOX_API_KEY?: string;
   SONIOX_MODEL?: string;
-  CAPTION_PROVIDER?: string;
   REVENUECAT_SECRET_KEY: string;
+  MINUTE_PACKS_ENABLED?: string;
+  REVENUECAT_V2_SECRET_KEY?: string;
+  REVENUECAT_PROJECT_ID?: string;
   REVENUECAT_WEBHOOK_AUTH_KEY: string;
   REVENUECAT_ENTITLEMENT: string;
   ALLOWED_ORIGINS: string;
@@ -39,6 +46,7 @@ export async function db(
 export async function identity(
   env: Env,
   token: string,
+  allowDeletion = false,
 ): Promise<{ id: string; expiresAt: number }> {
   const r = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
     headers: {
@@ -48,7 +56,9 @@ export async function identity(
     signal: AbortSignal.timeout(8000),
   });
   if (!r.ok) throw new Error("Sign in again to continue.");
-  const user = (await r.json()) as { id: string };
+  const user = (await r.json()) as { id: string; app_metadata?: {audeeo_deletion?: unknown} };
+  if (!allowDeletion && user.app_metadata?.audeeo_deletion)
+    throw new Error("Account deletion is pending. Open Account settings to finish deleting your account.");
   // The token was validated by Supabase above. Decode only to bound this socket's lifetime.
   const claims = JSON.parse(
     atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")),
@@ -80,10 +90,24 @@ export function allowancePeriod(start: string, end: string, now = new Date()) {
   if (anniversary(months) > now) months--;
   return { start: anniversary(months).toISOString(), end: new Date(Math.min(anniversary(months + 1).getTime(), expiry.getTime())).toISOString() };
 }
-export async function accountUsage(env: Env, owner: string): Promise<AccountUsage> {
-  return db(env, "rpc/account_usage", { p_owner: owner });
+export async function accountUsage(env: Env, owner: string, sandbox = false): Promise<AccountUsage> {
+  sandbox = billingSandbox(env, owner, sandbox);
+  return {...await db(env, sandbox ? "rpc/sandbox_account_usage" : "rpc/account_usage", { p_owner: owner }),packsEnabled:sandbox || env.MINUTE_PACKS_ENABLED==='true'};
 }
-export async function refreshEntitlement(env: Env, owner: string): Promise<SubscriptionSync> {
+export function requireBillingTester(env: Env, owner: string) {
+  if (!owner || ![env.BILLING_TEST_USER_IDS, env.APP_REVIEW_USER_IDS].some(ids => (ids || '').split(',').map(id=>id.trim()).includes(owner)))
+    throw Object.assign(new Error('Sandbox purchases are not enabled for this account.'), {status:403});
+}
+/** Dedicated review accounts must exercise Apple's sandbox in the production
+ * binary. Only server-configured account IDs select this mode; client metadata
+ * and request flags cannot enroll a reviewer or grant production credit. */
+export function billingSandbox(env: Env, owner: string, requested = false): boolean {
+  const review = !!owner && (env.APP_REVIEW_USER_IDS || '').split(',').map(id=>id.trim()).includes(owner);
+  if (review || requested) requireBillingTester(env, owner);
+  return review || requested;
+}
+export async function refreshEntitlement(env: Env, owner: string, sandbox = false): Promise<SubscriptionSync> {
+  sandbox = billingSandbox(env, owner, sandbox);
   if (!env.REVENUECAT_SECRET_KEY)
     throw new Error("Purchase verification is not configured.");
   const checked = new Date().toISOString();
@@ -105,15 +129,42 @@ export async function refreshEntitlement(env: Env, owner: string): Promise<Subsc
       subscriptions?: Record<string, {
         store_transaction_id?: string;
         store?: string;
+        is_sandbox?: boolean;
+        purchase_date?: string;
+        expires_date?: string;
+        refunded_at?: string | null;
       }>;
       non_subscriptions?: Record<string, Array<{
         id?: string;
+        store_transaction_id?: string;
+        is_sandbox?: boolean;
+        refunded_at?: string | null;
         store?: string;
         purchase_date?: string;
       }>>;
     };
   };
-  const e = result.subscriber.entitlements[env.REVENUECAT_ENTITLEMENT];
+  await synchronizePackPurchases(env, owner);
+  await reconcilePackPurchases(env, owner, result.subscriber.non_subscriptions ?? {});
+  let e: (typeof result.subscriber.entitlements)[string] | undefined = result.subscriber.entitlements[env.REVENUECAT_ENTITLEMENT];
+  const proProducts = new Set(['AUDEEO_MONTHLY_1','audeeo_pro_yearly','audeeo_pro_monthly_web','audeeo_pro_yearly_web']);
+  const subscriptions = Object.entries(result.subscriber.subscriptions ?? {});
+  if (sandbox) {
+    const test = subscriptions.filter(([id,s])=>proProducts.has(id) && s.is_sandbox === true && !s.refunded_at && Date.parse(s.expires_date || '') > Date.now())
+      .sort((a,b)=>Date.parse(b[1].purchase_date || '')-Date.parse(a[1].purchase_date || ''))[0];
+    const period = test?.[1].purchase_date && test[1].expires_date ? allowancePeriod(test[1].purchase_date,test[1].expires_date) : null;
+    if (test && (!period || !test[1].store_transaction_id)) throw new Error('Test subscription verification is incomplete. Refresh purchases to retry.');
+    await db(env,'rpc/apply_sandbox_entitlement',{p_owner:owner,p_active:!!test,p_product:test?.[0]??null,
+      p_subscription:test?.[1].store_transaction_id??null,p_start:period?.start??null,p_end:period?.end??null,p_checked:checked});
+    const usage = await accountUsage(env,owner,true);
+    return {...usage,expiresAt:test?.[1].expires_date??null};
+  }
+  // A test receipt must never turn into a live subscription allowance. If
+  // RevenueCat selects a sandbox entitlement, retain any other active live plan.
+  if (e && result.subscriber.subscriptions?.[e.product_identifier || '']?.is_sandbox === true) {
+    const live = subscriptions.find(([id,s])=>proProducts.has(id) && s.is_sandbox === false && !s.refunded_at && Date.parse(s.expires_date || '') > Date.now());
+    e = live ? {product_identifier:live[0],purchase_date:live[1].purchase_date,expires_date:live[1].expires_date} : undefined;
+  }
   const productId = e?.product_identifier?.trim() || null;
   const subscription = productId ? result.subscriber.subscriptions?.[productId] : undefined;
   const promotionalPurchase = productId

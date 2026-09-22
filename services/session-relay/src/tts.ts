@@ -65,7 +65,7 @@ export async function synthesizeCommitted(
         }
         if (e.type === "session.finished") finish();
         if (e.type === "error")
-          finish(Error("Speech failed. Captions remain available."));
+          finish(Error("Speech failed. Subtitles remain available."));
       } catch (e) {
         finish(e instanceof Error ? e : Error("Invalid speech response"));
       }

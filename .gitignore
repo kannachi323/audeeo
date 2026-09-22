@@ -17,6 +17,7 @@ src-tauri/gen/schemas/
 # Sub-projects
 website/node_modules/
 website/dist/
+website/dist-sandbox/
 website/.env.local
 website/*.tsbuildinfo
 
@@ -45,3 +46,11 @@ models/
 *.mobileprovision
 *.keystore
 *.jks
+
+*.provisionprofile
+*.p8
+
+
+# Local tooling caches
+.wrangler/
+__pycache__/

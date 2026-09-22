@@ -14,6 +14,8 @@ it('preserves final transcription corrections under one caption ID', () => {
 it('streams translated fragments without fabricated source text or spaces', () => {
  const rows:any[]=[];const c=new OpenAICaptions('s','en','zh',s=>rows.push(s));
  c.ingest({type:'session.output_transcript.delta',delta:'你'},10);
+ expect(rows).toHaveLength(1);
+ expect(rows[0]).toMatchObject({translatedText:'你',final:false});
  c.ingest({type:'session.output_transcript.delta',delta:'好。'},20);
  expect(rows.at(-1)).toMatchObject({translatedText:'你好。',sourceText:'',final:true});
 });

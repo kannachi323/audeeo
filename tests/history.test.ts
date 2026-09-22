@@ -132,3 +132,31 @@ it("preserves deletion queued while a completed document is uploading", async ()
   expect(remote.delete).toHaveBeenCalledWith("a","s");
   expect(box.pending).toBe(0);
 });
+it('retains the server generation and start time through native recovery',async()=>{
+  const remote={write:vi.fn(),delete:vi.fn()};
+  const box=new HistoryOutbox('a',memory(),remote,()=> 'a');
+  const annotated={...segment,historyGeneration:3,sessionStartedAt:new Date().toISOString()};
+  box.enqueue(annotated,undefined,99);
+  box.prune(3);box.completeSessions();await box.flush();
+  expect(remote.write).toHaveBeenCalledWith('a',[annotated],annotated.sessionStartedAt,3);
+});
+it('drops expired and stale generations without losing a current session or queued deletion',async()=>{
+  const remote={write:vi.fn(),delete:vi.fn()};
+  const box=new HistoryOutbox('a',memory(),remote,()=> 'a');
+  const now=Date.now(),recent=new Date(now-1000).toISOString();
+  box.enqueue({...segment,id:'old',sessionId:'old'},recent,1);
+  box.enqueue({...segment,id:'expired',sessionId:'expired'},new Date(now-30*86400000).toISOString(),3);
+  box.enqueue({...segment,id:'legacy',sessionId:'legacy'});
+  box.enqueue(segment,recent,3);box.completeSessions();box.deleteSession('deleted');
+  box.prune(3,now);await box.flush();
+  expect(remote.write).toHaveBeenCalledExactlyOnceWith('a',[segment],recent,3);
+  expect(remote.delete).toHaveBeenCalledWith('a','deleted');
+  expect(box.pending).toBe(0);
+});
+it('does not recreate local storage when an in-flight write completes after clearing history',async()=>{
+  const storage=memory();let done!:()=>void;
+  const box=new HistoryOutbox('a',storage,{write:()=>new Promise(resolve=>{done=resolve;}),delete:vi.fn()},()=> 'a');
+  box.enqueue(segment);box.completeSessions();const pending=box.flush();
+  box.clear();done();await pending;
+  expect(storage.getItem('audeeo.history.a')).toBeNull();
+});

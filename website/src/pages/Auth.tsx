@@ -36,8 +36,8 @@ export function AuthPage({ mode }: { mode: 'signin' | 'register' }) {
     <section className="auth-page" aria-labelledby="auth-title">
       <div className="auth-shell">
         <header>
-          <h1 id="auth-title">{registering ? 'Create an account' : 'Welcome back'}</h1>
-          <p>{registering ? 'Sign up to get started with Audeeo.' : 'Sign in to pick up where you left off in Audeeo.'}</p>
+          <h1 id="auth-title">{registering ? 'Create an account' : 'Sign in'}</h1>
+          <p>For the optional Audeeo service.</p>
         </header>
         <div className="auth-card">
           <div className="provider-list">
@@ -48,13 +48,13 @@ export function AuthPage({ mode }: { mode: 'signin' | 'register' }) {
               <FaApple aria-hidden="true" /><span>{busy === 'apple' ? 'Connecting…' : `${registering ? 'Sign up' : 'Continue'} with Apple`}</span>
             </button>
           </div>
-          {!configured && <p className="auth-message muted" role="status">Authentication is unavailable in this local build until the public Supabase variables are configured.</p>}
+          {!configured && <p className="auth-message muted" role="status">Sign-in is currently unavailable. Please try again later.</p>}
           {error && <p className="auth-message error" role="alert">{error}</p>}
           <footer>
             {registering ? <Link to="/signin">Already have an account? Sign in</Link> : <Link to="/register">Don’t have an account? Create one</Link>}
           </footer>
         </div>
-        <p className="auth-terms">By continuing, you agree to Audeeo’s <a href="https://github.com/kannachi323/audeeo/blob/main/LICENSE" target="_blank" rel="noreferrer">open-source license</a>.</p>
+        <p className="auth-terms">By continuing, you agree to the <Link to="/terms">terms</Link>. <Link to="/privacy">Privacy policy</Link>.</p>
       </div>
     </section>
   )

@@ -1,0 +1,44 @@
+import {afterEach,expect,it,vi} from 'vitest';
+const mocks=vi.hoisted(()=>({identity:vi.fn(),db:vi.fn(),refresh:vi.fn()}));
+vi.mock('../services/session-relay/src/backend',async importOriginal=>({...await importOriginal<object>(),identity:mocks.identity,db:mocks.db,refreshEntitlement:mocks.refresh}));
+import {liveSession} from '../services/session-relay/src/liveSession';
+afterEach(()=>{vi.clearAllMocks();vi.unstubAllGlobals();});
+it.each([true,false,'true'])('binds session metering to the authenticated environment: %s',async sandbox=>{
+ const handlers=new Map<string,Function>();const messages:any[]=[];
+ const socket={accept(){},close(){},send(value:string){messages.push(JSON.parse(value));},addEventListener(name:string,fn:Function){handlers.set(name,fn);}};
+ vi.stubGlobal('WebSocketPair',class {0={};1=socket;});
+ vi.stubGlobal('Response',class {constructor() {}});
+ mocks.identity.mockResolvedValue({id:'tester',expiresAt:Date.now()+60000});
+ mocks.db.mockImplementation(async(_env,path)=>path==='rpc/reserve_metered_usage'?0:[]);
+ liveSession({SONIOX_API_KEY:'test',BILLING_TEST_USER_IDS:'tester'} as any);
+ handlers.get('message')!({data:JSON.stringify({type:'start',accessToken:'test',sourceLanguage:'en',targetLanguage:'es',sandbox})});
+ await vi.waitFor(()=>expect(messages.some(m=>m.type==='ready')).toBe(true));
+ expect(mocks.refresh).toHaveBeenCalledWith(expect.anything(),'tester',sandbox===true);
+ expect(mocks.db).toHaveBeenCalledWith(expect.anything(),'rpc/reserve_metered_usage',expect.objectContaining({p_environment:sandbox===true?'SANDBOX':'PRODUCTION'}));
+ handlers.get('message')!({data:JSON.stringify({type:'stop'})});
+ await vi.waitFor(()=>expect(messages.some(m=>m.type==='finished')).toBe(true));
+});
+it('rejects non-testers before accessing sandbox balances or starting providers',async()=>{
+ const handlers=new Map<string,Function>();const messages:any[]=[];
+ const socket={accept(){},close(){},send(value:string){messages.push(JSON.parse(value));},addEventListener(name:string,fn:Function){handlers.set(name,fn);}};
+ vi.stubGlobal('WebSocketPair',class {0={};1=socket;});vi.stubGlobal('Response',class {constructor() {}});
+ mocks.identity.mockResolvedValue({id:'stranger',expiresAt:Date.now()+60000});
+ liveSession({SONIOX_API_KEY:'test',BILLING_TEST_USER_IDS:'tester'} as any);
+ handlers.get('message')!({data:JSON.stringify({type:'start',accessToken:'test',sourceLanguage:'en',targetLanguage:'es',sandbox:true})});
+ await vi.waitFor(()=>expect(messages.some(m=>m.type==='finished')).toBe(true));
+ expect(mocks.refresh).not.toHaveBeenCalled();expect(mocks.db).not.toHaveBeenCalled();
+});
+it('meters a dedicated reviewer in sandbox even when the production binary requests production',async()=>{
+ const handlers=new Map<string,Function>();const messages:any[]=[];
+ const socket={accept(){},close(){},send(value:string){messages.push(JSON.parse(value));},addEventListener(name:string,fn:Function){handlers.set(name,fn);}};
+ vi.stubGlobal('WebSocketPair',class {0={};1=socket;});vi.stubGlobal('Response',class {constructor() {}});
+ mocks.identity.mockResolvedValue({id:'reviewer',expiresAt:Date.now()+60000});
+ mocks.db.mockImplementation(async(_env,path)=>path==='rpc/reserve_metered_usage'?0:[]);
+ liveSession({SONIOX_API_KEY:'test',APP_REVIEW_USER_IDS:'reviewer',DEV_USER_IDS:'reviewer'} as any);
+ handlers.get('message')!({data:JSON.stringify({type:'start',accessToken:'test',sourceLanguage:'en',targetLanguage:'es',sandbox:false})});
+ await vi.waitFor(()=>expect(messages.some(m=>m.type==='ready')).toBe(true));
+ expect(mocks.refresh).toHaveBeenCalledWith(expect.anything(),'reviewer',true);
+ expect(mocks.db).toHaveBeenCalledWith(expect.anything(),'rpc/reserve_metered_usage',expect.objectContaining({p_environment:'SANDBOX'}));
+ handlers.get('message')!({data:JSON.stringify({type:'stop'})});
+ await vi.waitFor(()=>expect(messages.some(m=>m.type==='finished')).toBe(true));
+});

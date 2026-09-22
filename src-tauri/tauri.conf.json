@@ -30,12 +30,14 @@
     "security": {
       "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https: wss: http://127.0.0.1:8787 ws://127.0.0.1:8787; img-src 'self' asset: http://asset.localhost blob: data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self'"
     },
-    "macOSPrivateApi": true
+    "macOSPrivateApi": false
   },
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": ["audeeo"]
+        "schemes": [
+          "audeeo"
+        ]
       }
     }
   },

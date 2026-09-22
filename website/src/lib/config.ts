@@ -1,4 +1,5 @@
 export type PublicConfig = {
+  billingEnvironment: 'production' | 'sandbox'
   supabaseUrl: string
   supabasePublishableKey: string
   relayUrl: string

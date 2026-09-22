@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:sandbox": "tsc -b && vite build --mode sandbox",
     "deploy": "npm run build && wrangler deploy --config wrangler.jsonc",
     "deploy:dry": "npm run build && wrangler deploy --config wrangler.jsonc --dry-run",
     "lint": "eslint .",
@@ -16,6 +17,7 @@
   },
   "dependencies": {
     "@fontsource-variable/inter": "5.3.0",
+    "@radix-ui/react-accordion": "1.2.20",
     "@revenuecat/purchases-js": "1.60.1",
     "@supabase/supabase-js": "2.116.0",
     "lucide-react": "1.25.0",

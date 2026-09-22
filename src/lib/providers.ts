@@ -1,42 +1,32 @@
-export const captionProviders = [
-  {
-    id: "openai",
-    name: "OpenAI",
-    keyPlaceholder: "sk-…",
-    description: "Realtime captions and spoken translation.",
-  },
-  {
-    id: "soniox",
-    name: "Soniox",
-    keyPlaceholder: "Enter your Soniox API key",
-    description: "Realtime transcription and translation.",
-  },
-] as const;
+import { invoke, isTauri } from '@tauri-apps/api/core';
 
-export type ProviderId = (typeof captionProviders)[number]["id"];
-export type ProviderMode = "audeeo" | ProviderId;
+export type ProviderId = 'soniox' | 'openai';
+export type ProviderMode = 'audeeo' | ProviderId;
 export type ProviderKeys = Record<ProviderId, string>;
-export type ProviderCredentials = { provider: ProviderId; apiKey: string };
-
-export function emptyProviderKeys(): ProviderKeys {
-  return Object.fromEntries(captionProviders.map(({ id }) => [id, ""])) as ProviderKeys;
+const storageKey = '__audeeo_provider_keys_v1';
+export const emptyProviderKeys = (): ProviderKeys => ({soniox:'',openai:''});
+export const providerName = (provider: ProviderId) => provider === 'soniox' ? 'Soniox' : 'OpenAI';
+export function connectionMode(storage: Pick<Storage,'getItem'>): ProviderMode {
+  const mode = storage.getItem('audeeo.connection-mode');
+  return mode === 'soniox' || mode === 'openai' ? mode : 'audeeo';
 }
-
-export function providerCredentials(
-  mode: ProviderMode,
-  keys: ProviderKeys,
-): ProviderCredentials | undefined {
-  if (mode === "audeeo") return undefined;
-  const apiKey = keys[mode].trim();
-  if (!apiKey) {
-    const provider = captionProviders.find(({ id }) => id === mode)!;
-    throw new Error(`Add your ${provider.name} API key in Settings → Providers, or choose Audeeo subscription.`);
-  }
-  return { provider: mode, apiKey };
+function parseKeys(raw: string | null | undefined): ProviderKeys {
+  if (!raw) return emptyProviderKeys();
+  const value = JSON.parse(raw);
+  return {soniox: typeof value.soniox === 'string' ? value.soniox : '', openai: typeof value.openai === 'string' ? value.openai : ''};
 }
-
-export function providerModeDescription(mode: ProviderMode, keys: ProviderKeys) {
-  if (mode === "audeeo") return "Use your Audeeo subscription";
-  const provider = captionProviders.find(({ id }) => id === mode)!;
-  return `${provider.name} · ${keys[mode].trim() ? "personal key" : "key required"}`;
+export async function loadProviderKeys(): Promise<ProviderKeys> {
+  if (!isTauri()) return emptyProviderKeys();
+  // Existing native credential storage: user-only file permissions on desktop,
+  // Never use browser localStorage for keys.
+  return parseKeys(await invoke<string | null>('auth_storage_get', {key:storageKey}));
+}
+export async function saveProviderKeys(keys: ProviderKeys): Promise<void> {
+  if (!isTauri()) return; // Browser development keeps supplied keys in memory only.
+  await invoke('auth_storage_set', {key:storageKey,value:JSON.stringify(keys)});
+}
+export function personalKey(mode: ProviderId, keys: ProviderKeys): string {
+  const key = keys[mode].trim();
+  if (!key || key.length > 4096 || /\s/.test(key)) throw new Error(`Enter a valid ${providerName(mode)} API key.`);
+  return key;
 }

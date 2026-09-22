@@ -68,12 +68,27 @@ it.each(["google", "apple"] as const)(
         skipBrowserRedirect: true,
       },
     });
-    expect(invoke).toHaveBeenCalledWith("oauth_redirect_url");
+    expect(invoke).toHaveBeenCalledWith("oauth_redirect_url", undefined);
     expect(invoke).toHaveBeenCalledWith("begin_oauth", {
       url: "https://auth.example.test/auth/v1/authorize",
     });
   },
 );
+it("preserves native callback preparation errors as actionable sign-in errors", async () => {
+  const { signIn } = await import("../src/lib/account");
+  const { invoke } = await import("@tauri-apps/api/core");
+  vi.mocked(invoke).mockRejectedValueOnce("Couldn’t prepare the browser sign-in callback. Please try again.");
+  await expect(signIn("google")).rejects.toThrow("Couldn’t prepare the browser sign-in callback.");
+  expect(auth.oauth).not.toHaveBeenCalled();
+});
+it("preserves native browser launch errors after preparing OAuth", async () => {
+  const { signIn } = await import("../src/lib/account");
+  const { invoke } = await import("@tauri-apps/api/core");
+  vi.mocked(invoke).mockResolvedValueOnce("http://127.0.0.1:49152/auth/callback")
+    .mockRejectedValueOnce("Couldn’t open the default browser. Check default-browser settings and try again.");
+  auth.oauth.mockResolvedValue({ data: { url: "https://auth.example.test/auth/v1/authorize" }, error: null });
+  await expect(signIn("google")).rejects.toThrow("Couldn’t open the default browser.");
+});
 it("signs in with a normalized email and password", async () => {
   const { signInWithEmailPassword } = await import("../src/lib/account");
   auth.password.mockResolvedValue({ error: null });

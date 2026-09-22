@@ -1,8 +1,12 @@
 # Audeeo website
 
 Separate Vite/React website deployed as Cloudflare Worker Static Assets. The
-landing page uses a static product preview and works without backend
-configuration. Website account access uses the same Supabase and RevenueCat
+landing page is a compact app preview with the existing navbar and factual copy.
+Set VITE_DEMO_VIDEO_URL to your recorded MP4/WebM URL (or a file in public/) to replace
+the home page’s video placeholder with a user-controlled video. The download page
+has a screenshot placeholder in `ProductDemo`. No autoplay. Design rules live in AGENTS.md.
+The download page remains in a coming-soon state until a verified direct-release
+installer is published. Website account access uses the same Supabase and RevenueCat
 projects as the desktop app.
 
 ## Account configuration

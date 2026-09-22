@@ -8,7 +8,6 @@ public final class TranslationPlayback {
     public var maximumSeconds = 60
     private var pendingFrames = 0
     private var generation = 0
-    private var releaseSession = false
     private var failed = false
     private var observer: NSObjectProtocol?
     public var onActivity: ((Bool) -> Void)?
@@ -24,7 +23,6 @@ public final class TranslationPlayback {
         }
     }
     public func enqueue(pcm: Data) throws {
-        releaseSession = false
         let frames = pcm.count / 2
         guard !failed, pcm.count % 2 == 0, frames > 0, pendingFrames + frames <= 24000 * maximumSeconds else {
             failed = true
@@ -43,24 +41,17 @@ public final class TranslationPlayback {
             DispatchQueue.main.async {
                 guard let self, self.generation == run else { return }
                 self.pendingFrames = max(0, self.pendingFrames - frames)
-                if !self.active { self.onActivity?(false); self.releaseIfFinished() }
+                if !self.active { self.onActivity?(false) }
             }
         }
         if !player.isPlaying { player.play() }
         if !wasActive { onActivity?(true) }
     }
-    public func reset() { stop(); failed = false; releaseSession = false }
-    public func finishSession() { releaseSession = true; releaseIfFinished() }
-    private func releaseIfFinished() {
-        #if os(iOS)
-        if releaseSession && !active { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
-        #endif
-    }
+    public func reset() { stop(); failed = false }
     public func stop() {
         generation += 1
         player.stop(); engine.stop(); pendingFrames = 0
         onActivity?(false)
-        releaseIfFinished()
     }
     deinit { if let observer { NotificationCenter.default.removeObserver(observer) }; player.stop(); engine.stop() }
 }

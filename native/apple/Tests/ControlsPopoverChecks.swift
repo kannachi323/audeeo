@@ -39,7 +39,37 @@ import WebKit
             assert(!controls.popover.isShown)
             assert(host.contentView === nativeRoot, "Closing must preserve the Tao root too")
         }
-        host.close(); panel.close()
-        print("Native popover checks passed: hidden host, reusable webview, unchanged caption frame, close/reopen.")
+        // A toolbar against the bottom edge must flip, not collapse to one pixel.
+        if let screen = panel.screen ?? NSScreen.main {
+            panel.setFrameOrigin(NSPoint(x: screen.visibleFrame.minX + 100, y: screen.visibleFrame.minY))
+            controls.show(main: panel, host: host, anchor: NSRect(x: 30, y: 220, width: 36, height: 36), height: 300)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+            assert(controls.popover.isShown)
+            assert(controls.popover.contentSize.height >= 200, "Controls must stay usable at the screen bottom")
+            closeControlsPopover()
+            panel.setFrame(frame, display: false)
+        }
+        // A newly created Tauri host must replace the view from the old host.
+        let replacement = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 310, height: 300), styleMask: .borderless, backing: .buffered, defer: false)
+        replacement.isReleasedWhenClosed = false
+        let replacementWeb = WKWebView(frame: replacement.contentView!.bounds)
+        replacement.contentView!.addSubview(replacementWeb)
+        replacementWeb.loadHTMLString("<html><body style='background:#232323;color:white'>Restored context controls</body></html>", baseURL: nil)
+        controls.show(main: panel, host: host, anchor: NSRect(x: 30, y: 205, width: 36, height: 36), height: 300)
+        controls.show(main: panel, host: replacement, anchor: NSRect(x: 30, y: 205, width: 36, height: 36), height: 300)
+        assert(controls.popover.contentViewController?.view.subviews.contains(replacementWeb) == true, "Adopt the live webview after host recreation")
+        assert(controls.popover.contentViewController?.view.subviews.contains(web) == false, "Never display a destroyed host's stale webview")
+        assert(controls.popover.isShown && !replacement.isVisible)
+        assert(replacementWeb.bounds.width > 0 && replacementWeb.bounds.height > 0)
+        var restoredText = ""
+        let deadline = Date().addingTimeInterval(5)
+        while restoredText != "Restored context controls" && Date() < deadline {
+            replacementWeb.evaluateJavaScript("document.body.innerText") { result, _ in restoredText = result as? String ?? "" }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        }
+        assert(restoredText == "Restored context controls", "Replacement webview must actually render the controls document")
+        closeControlsPopover()
+        replacement.close(); host.close(); panel.close()
+        print("Native popover checks passed: hidden host, reusable webview, unchanged caption frame, close/reopen, rendered replacement document.")
     }
 }

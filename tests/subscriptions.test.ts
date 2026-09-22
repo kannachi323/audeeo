@@ -1,12 +1,12 @@
 import { beforeEach, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
-  native: vi.fn(), isTauri: vi.fn(() => false),
+  native: vi.fn(), invoke: vi.fn(), isTauri: vi.fn(() => false),
   configure: vi.fn(), changeUser: vi.fn(), getCustomerInfo: vi.fn(), getOfferings: vi.fn(),
   purchase: vi.fn(), presentPaywall: vi.fn(),
 }));
-vi.mock("@tauri-apps/api/core", () => ({ isTauri: mocks.isTauri }));
+vi.mock("@tauri-apps/api/core", () => ({ isTauri: mocks.isTauri, invoke:mocks.invoke }));
 vi.mock("../src/lib/account", () => ({ nativePurchase: mocks.native }));
-vi.mock("../src/lib/config", () => ({ config: { revenueCatWebKey: "test_key" } }));
+vi.mock("../src/lib/config", () => ({ config: { revenueCatWebKey: "test_key", distribution:"app-store" } }));
 vi.mock("@revenuecat/purchases-js", () => ({
   Purchases: { configure: mocks.configure },
   PurchasesError: class extends Error { errorCode = 1; },
@@ -57,19 +57,21 @@ it("uses RevenueCat web billing for the Windows desktop app", async () => {
   mocks.getOfferings.mockResolvedValue({ current: { annual: pkg } });
   mocks.purchase.mockResolvedValue({ customerInfo: pro });
   const { subscriptionAction } = await import("../src/lib/subscriptions");
-  expect((await subscriptionAction(session, "yearly", "windows"))?.active).toBe(true);
-  expect(mocks.purchase).toHaveBeenCalledWith({ rcPackage: pkg, customerEmail: session.user.email });
+  expect(await subscriptionAction(session, "yearly", "windows")).toBeNull();
+  expect(mocks.invoke).toHaveBeenCalledWith("open_external_url",{url:"https://audeeo.app/pricing"});
   expect(mocks.native).not.toHaveBeenCalled();
 });
-it("blocks account switching during checkout, then releases the lock on error", async () => {
+it("queues account switching until checkout finishes, including errors", async () => {
   let fail!: (error: Error) => void;
   mocks.presentPaywall.mockImplementation(() => new Promise((_, reject) => { fail = reject; }));
   const { subscriptionAction, customerInfo } = await import("../src/lib/subscriptions");
   const checkout = subscriptionAction(session, "paywall");
   const assertion = expect(checkout).rejects.toThrow("Network unavailable");
   await vi.waitFor(() => expect(fail).toBeDefined());
-  await expect(customerInfo({ user: { id: "b" } } as any)).rejects.toThrow("Finish the current");
+  const other = customerInfo({ user: { id: "b" } } as any);
+  expect(mocks.changeUser).not.toHaveBeenCalled();
   fail(new Error("Network unavailable")); await assertion;
+  await expect(other).resolves.toMatchObject({active:true});
   await expect(customerInfo(session)).resolves.toMatchObject({ active: true });
 });
 it("treats cancelled checkout as a normal outcome and rejects unsafe management URLs", async () => {
@@ -86,4 +88,28 @@ it("reports missing packages without starting a purchase", async () => {
   expect(await subscriptionPlans(session)).toEqual([]);
   await expect(subscriptionAction(session, "monthly")).rejects.toThrow("not available");
   expect(mocks.purchase).not.toHaveBeenCalled();
+});
+it('reads the customer paid price from subscription history',async()=>{
+  mocks.getCustomerInfo.mockResolvedValue({...pro,subscriptionsByProductIdentifier:{yearly:{price:{formattedPrice:'€79.99'},periodType:'normal'}}});
+  const {customerInfo}=await import('../src/lib/subscriptions');
+  expect(await customerInfo(session)).toMatchObject({paidPrice:'€79.99',periodType:'normal'});
+});
+
+it('passes bulk quantity to one Apple checkout',async()=>{
+ mocks.isTauri.mockReturnValue(true);mocks.native.mockResolvedValue({transactionId:'bulk-tx',cancelled:false});
+ const {purchaseMinutePack}=await import('../src/lib/subscriptions');
+ expect(await purchaseMinutePack(session,'minutes_180','macos',4)).toEqual({status:'pending',transactionId:'bulk-tx',productID:'audeeo_minutes_180'});
+ expect(mocks.native).toHaveBeenCalledWith('pack:minutes_180:4',session);
+ expect(mocks.native).toHaveBeenCalledTimes(1);
+});
+it.each([0,-1,11,1.5])('does not open checkout for invalid quantity %s',async quantity=>{
+ mocks.isTauri.mockReturnValue(true);
+ const {purchaseMinutePack}=await import('../src/lib/subscriptions');
+ await expect(purchaseMinutePack(session,'minutes_60','macos',quantity)).rejects.toThrow('Choose between');
+ expect(mocks.native).not.toHaveBeenCalled();expect(mocks.purchase).not.toHaveBeenCalled();
+});
+it('does not silently buy one pack if a storefront does not support quantity',async()=>{
+ const {purchaseMinutePack}=await import('../src/lib/subscriptions');
+ await expect(purchaseMinutePack(session,'minutes_60','browser',3)).rejects.toThrow('Apple app');
+ expect(mocks.purchase).not.toHaveBeenCalled();
 });

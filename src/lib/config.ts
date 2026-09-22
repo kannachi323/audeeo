@@ -1,5 +1,7 @@
 /** Public build-time configuration. Server secrets must never be added here. */
 type PublicConfig = Readonly<{
+  distribution: "app-store" | "direct" | "web"
+  billingEnvironment: "production" | "sandbox"
   supabaseUrl: string
   supabasePublishableKey: string
   relayUrl: string

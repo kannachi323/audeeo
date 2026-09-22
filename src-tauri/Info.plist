@@ -14,7 +14,7 @@
 		</dict>
 	</array>
 	<key>NSAudioCaptureUsageDescription</key>
-	<string>Audeeo captures source audio for live captions and independent original and translated playback.</string>
+	<string>Audeeo captures source audio for live subtitles and independent original and translated playback.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Audeeo requires microphone access to transcribe live speech and display real-time subtitles.</string>
 </dict>

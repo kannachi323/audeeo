@@ -7,7 +7,7 @@ edition = "2021"
 
 [lib]
 name = "audeeo_app_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+crate-type = ["rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2.6.3", features = [] }
@@ -16,12 +16,11 @@ tauri-build = { version = "2.6.3", features = [] }
 base64 = "0.22"
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
-tauri = { version = "2.11.5", features = ["macos-private-api"] }
-
-[target.'cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))'.dependencies]
-libc = "0.2"
+tauri = { version = "2.11.5", features = [] }
+tauri-plugin-websocket = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
 screencapturekit = { version = "10.0.3" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
@@ -30,6 +29,3 @@ tauri-plugin-opener = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 wasapi = "=0.24.0"
 windows = { version = "=0.62.2", features = ["Win32_Storage_FileSystem"] }
-
-[target.'cfg(target_os = "android")'.dependencies]
-jni = "0.21"

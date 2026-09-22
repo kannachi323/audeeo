@@ -3,7 +3,7 @@
   <h1>Audeeo</h1>
   <p>Live captions and translation.</p>
   <p>Open source. Bring your own API key or subscribe.</p>
-  <p>macOS · Windows · iOS · Android</p>
+  <p>macOS · Windows</p>
   <p>
     <a href="#build-from-source">Build from source</a> ·
     <a href="https://github.com/kannachi323/audeeo/issues">Issues</a> ·
@@ -19,7 +19,7 @@
 - Spoken translation, with separate playback controls.
 - Session history, summaries, and questions about saved transcripts.
 
-Capture and floating-window support vary by platform. See [audio sources](docs/audio-sources.md) and [mobile support](docs/mobile.md).
+Capture support varies by platform. See [audio sources](docs/audio-sources.md).
 
 **In development.** No public installers yet.
 
@@ -41,7 +41,7 @@ npm run desktop
 ```
 
 Use `npm run dev` for the browser UI. Native audio capture requires the app.
-For mobile builds, see the [mobile guide](docs/mobile.md). Native signing must use your own credentials.
+Native signing must use your own credentials.
 
 ### Backend development and checks
 
@@ -63,6 +63,18 @@ See [backend setup](docs/supabase.md) for account and database configuration.
 npm run check
 npm run test:database
 ```
+
+## Repository
+
+| Folder | Purpose |
+| --- | --- |
+| `src/` | React interface and desktop session controls |
+| `src-tauri/` | Rust desktop shell, Windows audio, and system integration |
+| `native/apple/` | Swift macOS audio, windows, and App Store billing |
+| `shared/` | Shared TypeScript types and session logic |
+| `services/session-relay/` | Hosted captions, translation, and billing backend |
+| `website/` | Website and web checkout |
+| `tests/`, `scripts/`, `docs/` | Checks, build tools, and development notes |
 
 ## Contributing
 

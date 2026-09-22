@@ -1,33 +1,24 @@
+import {MinutePacks} from "./MinutePacks";
+import type {AccountUsage} from "../../shared/billing";
+import {SignOutButton} from "./SignOutButton";
+import {SubscriptionSummary} from "./SubscriptionSummary";
+import {LegalFooter} from "./LegalLinks";
 import { useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { ArrowLeft, Mail } from "lucide-react";
 import audeeoLogo from "../../assets/audeeo-logo.png";
 import { accountRequest } from "../lib/account";
+import { emailSignInAvailable } from "../lib/authMethods";
 import {
   customerInfo,
   subscriptionAction,
   subscriptionPlans,
   type Plan,
 } from "../lib/subscriptions";
-import { captionProviders, type ProviderId, type ProviderKeys, type ProviderMode } from "../lib/providers";
 import { Button } from "./Button";
-import { CaptionProviderLogo } from "./CaptionProviderLogo";
 import { ProviderIcon } from "./ProviderIcon";
-import { Select } from "./Select";
 
-export const AUDEEO_PRO_FEATURES = [
-  "Live captions",
-  "Real-time translation",
-  "Spoken translation audio",
-  "Desktop, application, and microphone audio",
-  "Floating caption overlay",
-  "Synced caption history",
-  "Session summaries and Q&A",
-  "Custom context and terminology",
-  "No provider API keys required",
-] as const;
-
-type Stage = "account" | "choice" | "subscription" | "keys" | "ready";
+type Stage = "account" | "choice" | "subscription" | "packs" | "ready";
 
 function OnboardingHeading({ children }: { children: string }) {
   return <header className="onboarding-heading">
@@ -42,39 +33,31 @@ export function DesktopOnboarding({
   configured,
   authPending,
   error,
-  initialMode,
-  keys,
   onSocialSignIn,
   onEmailSignIn,
   onEmailSignUp,
   onSignOut,
   onResetAuth,
-  onMode,
-  onKey,
   onComplete,
+  onUsePersonalKey,
 }: {
   session: Session | null;
   platform: string;
   configured: boolean;
   authPending: boolean;
   error: string;
-  initialMode: ProviderMode;
-  keys: ProviderKeys;
   onSocialSignIn: (provider: "apple" | "google") => void;
   onEmailSignIn: (email: string, password: string) => Promise<void>;
   onEmailSignUp: (email: string, password: string) => Promise<boolean>;
   onSignOut: () => Promise<void>;
   onResetAuth: () => void;
-  onMode: (mode: ProviderMode) => void;
-  onKey: (provider: ProviderId, key: string) => void;
-  onComplete: (mode: ProviderMode) => void;
+  onComplete: (mode: "audeeo") => void;
+  onUsePersonalKey?:()=>void;
 }) {
-  const [stage, setStage] = useState<Stage>(session ? (initialMode === "audeeo" ? "choice" : "keys") : "account");
-  const [keyProvider, setKeyProvider] = useState<ProviderId>(() => initialMode !== "audeeo"
-    ? initialMode
-    : captionProviders.find(provider => keys[provider.id].trim())?.id ?? "openai");
-  const selectedProvider = captionProviders.find(provider => provider.id === keyProvider)!;
+  const [stage, setStage] = useState<Stage>(session ? "choice" : "account");
+  const [existingUsage,setExistingUsage]=useState<AccountUsage|null>(null);
   const [emailOpen, setEmailOpen] = useState(false);
+  const [emailEnabled, setEmailEnabled] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [emailAction, setEmailAction] = useState<"signin" | "signup" | null>(null);
@@ -86,12 +69,25 @@ export function DesktopOnboarding({
   const [billingMessage, setBillingMessage] = useState("");
 
   useEffect(() => {
+    if (session || !configured) return;
+    let current = true;
+    void emailSignInAvailable().then(enabled => {
+      if (current) setEmailEnabled(enabled);
+    }).catch(() => { if (current) setEmailEnabled(false); });
+    return () => { current = false; };
+  }, [configured, session?.user.id]);
+
+  useEffect(() => {
     if (!session) {
       setStage("account");
       setConfirmationRequired(false);
       return;
     }
-    setStage(initialMode === "audeeo" ? "choice" : "keys");
+    setStage("choice");
+    setExistingUsage(null);
+    let canceled=false;
+    void accountRequest<AccountUsage>("/v1/purchases/restore","POST",session).then(usage=>{if(!canceled)setExistingUsage(usage);}).catch(()=>{});
+    return ()=>{canceled=true;};
   }, [session?.user.id]);
 
   useEffect(() => {
@@ -109,7 +105,6 @@ export function DesktopOnboarding({
         if (info.active) {
           await accountRequest("/v1/purchases/restore", "POST", session);
           if (!current) return;
-          onMode("audeeo");
           setStage("ready");
           return;
         }
@@ -117,11 +112,12 @@ export function DesktopOnboarding({
         const availablePlans = await subscriptionPlans(session, platform);
         if (!current) return;
         setPlans(availablePlans);
+        if (!availablePlans.length) setBillingMessage("Plans are unavailable right now. Please try again later.");
         if (!availablePlans.some(plan => plan.id === selectedPlan)) {
           setSelectedPlan(availablePlans.some(plan => plan.id === "yearly") ? "yearly" : "monthly");
         }
-      } catch (reason) {
-        if (current) setBillingMessage(reason instanceof Error ? reason.message : "Subscriptions are unavailable. Try again.");
+      } catch {
+        if (current) setBillingMessage("Plans are unavailable right now. Please try again later.");
       } finally {
         if (current) setBillingBusy(false);
       }
@@ -152,10 +148,9 @@ export function DesktopOnboarding({
       }
       setSubscriptionActive(true);
       await accountRequest("/v1/purchases/restore", "POST", session);
-      onMode("audeeo");
       setStage("ready");
-    } catch (reason) {
-      setBillingMessage(reason instanceof Error ? reason.message : "Subscription request failed. Try again.");
+    } catch {
+      setBillingMessage("Could not complete your subscription. Please try again.");
     } finally {
       setBillingBusy(false);
     }
@@ -173,24 +168,20 @@ export function DesktopOnboarding({
         return;
       }
       await accountRequest("/v1/purchases/restore", "POST", session);
-      onMode("audeeo");
       setStage("ready");
-    } catch (reason) {
-      setBillingMessage(reason instanceof Error ? reason.message : "Could not refresh purchases. Try again.");
+    } catch {
+      setBillingMessage("Could not restore purchases. Please try again.");
     } finally {
       setBillingBusy(false);
     }
   }
 
-  function finishKeys() {
-    if (!keys[keyProvider].trim()) return;
-    onMode(keyProvider);
-    setStage("ready");
-  }
 
   const pageKey = stage === "account" ? `${stage}-${emailOpen ? "email" : "methods"}` : stage;
 
   return <main className="desktop-onboarding" aria-label="Audeeo setup">
+    <div className="onboarding-content">
+    {onUsePersonalKey && <Button variant="outline" onClick={onUsePersonalKey}>Use my own API key instead</Button>}
     <section key={pageKey} className={`desktop-onboarding-card stage-${stage}`}>
       {stage === "account" && <>
         <OnboardingHeading>Welcome to Audeeo</OnboardingHeading>
@@ -201,9 +192,9 @@ export function DesktopOnboarding({
           <Button variant="default" disabled={!configured || authPending} onClick={() => onSocialSignIn("google")}>
             <ProviderIcon provider="google"/><span>Continue with Google</span>
           </Button>
-          <Button variant="outline" disabled={!configured || authPending} onClick={() => setEmailOpen(true)}>
+          {emailEnabled && <Button variant="outline" disabled={!configured || authPending} onClick={() => setEmailOpen(true)}>
             <Mail aria-hidden="true"/><span>Continue with email</span>
-          </Button>
+          </Button>}
         </div> : <form className="onboarding-email" onSubmit={event => {
           event.preventDefault();
           if (!email.trim() || !password || authPending || emailAction) return;
@@ -249,14 +240,15 @@ export function DesktopOnboarding({
 
       {stage === "choice" && <>
         <OnboardingHeading>Choose your setup</OnboardingHeading>
+        <Button onClick={()=>onComplete("audeeo")}>{existingUsage?.active || existingUsage?.unlimited || (existingUsage?.purchasedSeconds??0)>0 ? 'Continue with your balance' : 'Continue free'}</Button>
         <div className="onboarding-choice-grid">
           <article className="onboarding-choice featured">
-            <h2>Audeeo Pro</h2>
-            <Button onClick={() => setStage("subscription")}>Choose Audeeo</Button>
+            <h2>Subscriptions</h2>
+            <Button onClick={() => setStage("subscription")}>Subscribe</Button>
           </article>
           <article className="onboarding-choice">
-            <h2>Bring your own keys</h2>
-            <Button variant="outline" onClick={() => setStage("keys")}>Use my keys</Button>
+            <h2>Minute packs</h2>
+            <Button variant="outline" onClick={() => setStage("packs")}>Buy minute packs</Button>
           </article>
         </div>
       </>}
@@ -264,17 +256,15 @@ export function DesktopOnboarding({
       {stage === "subscription" && <>
         <Button className="onboarding-back" variant="outline" onClick={() => setStage("choice")}><ArrowLeft aria-hidden="true"/><span>Back</span></Button>
         <OnboardingHeading>Audeeo Pro</OnboardingHeading>
-        <ul className="onboarding-features">
-          {AUDEEO_PRO_FEATURES.map(feature => <li key={feature}>{feature}</li>)}
-        </ul>
-        {!subscriptionActive && <div className="onboarding-plan-grid" aria-label="Subscription plans">
+        {!subscriptionActive && plans.length > 0 && <div className="onboarding-plan-grid" aria-label="Subscription plans">
           {plans.map(plan => <button key={plan.id} type="button" className={selectedPlan === plan.id ? "selected" : ""}
             aria-pressed={selectedPlan === plan.id} onClick={() => setSelectedPlan(plan.id)}>
             <strong>{plan.id === "yearly" ? "Yearly" : "Monthly"}</strong>
             <span>{plan.price} / {plan.id === "yearly" ? "year" : "month"}</span>
-            {plan.id === "yearly" && <small>Save 17%</small>}
+
           </button>)}
         </div>}
+        <SubscriptionSummary apple={platform === "macos"} plan={selected}/>
         <Button className="onboarding-primary" disabled={billingBusy || (!subscriptionActive && !selected)}
           onClick={() => void finishSubscription()}>
           {billingBusy ? "Please wait…" : subscriptionActive ? "Continue" : "Subscribe"}
@@ -284,41 +274,17 @@ export function DesktopOnboarding({
         {billingMessage && <p className="onboarding-message" role="status">{billingMessage}</p>}
       </>}
 
-      {stage === "keys" && <>
-        <Button className="onboarding-back" variant="outline" onClick={() => setStage("choice")}><ArrowLeft aria-hidden="true"/><span>Back</span></Button>
-        <OnboardingHeading>Connect your keys</OnboardingHeading>
-        <div className="onboarding-key-fields">
-          <div className="provider-select-field">
-            <label>
-              Provider
-              <Select label="Caption provider" value={keyProvider} onChange={setKeyProvider}
-                options={captionProviders.map(provider => ({
-                  value: provider.id,
-                  label: provider.name,
-                  icon: <CaptionProviderLogo provider={provider.id}/>,
-                }))}/>
-            </label>
-          </div>
-          <label htmlFor={`onboarding-${keyProvider}-key`}>{selectedProvider.name} API key</label>
-          <input id={`onboarding-${keyProvider}-key`} type="password" value={keys[keyProvider]} autoComplete="off" spellCheck={false}
-            maxLength={512} placeholder={selectedProvider.keyPlaceholder} onChange={event => onKey(keyProvider, event.target.value)} />
-        </div>
-        <Button className="onboarding-primary" disabled={!keys[keyProvider].trim()} onClick={finishKeys}>Save &amp; continue</Button>
-        <Button className="onboarding-link" variant="outline" onClick={() => setStage("subscription")}>Use Audeeo instead</Button>
+      {stage === "packs" && session && <>
+        <Button variant="outline" onClick={()=>setStage("choice")}><ArrowLeft/>Back</Button>
+        <OnboardingHeading>Buy minute packs</OnboardingHeading>
+        <MinutePacks session={session} platform={platform} onSynced={setExistingUsage}/>
+        <Button onClick={()=>onComplete("audeeo")}>Start using Audeeo</Button>
       </>}
+      {stage === "ready" && <><OnboardingHeading>You&apos;re ready</OnboardingHeading><Button className="onboarding-primary" variant="default" onClick={()=>onComplete("audeeo")}>Continue</Button></>}
 
-      {stage === "ready" && <>
-        <OnboardingHeading>You&apos;re ready</OnboardingHeading>
-        <Button className="onboarding-primary" onClick={() => onComplete(initialMode === "audeeo"
-          ? "audeeo"
-          : keys[initialMode].trim()
-            ? initialMode
-            : keys.openai.trim() ? "openai" : "soniox")}>Start using Audeeo</Button>
-      </>}
-
-      {session && <Button className="onboarding-sign-out" variant="outline" onClick={() => void onSignOut()}>
-        Sign out
-      </Button>}
+      {session && stage !== "ready" && <SignOutButton user={session.user} onSignOut={()=>void onSignOut()}/>}
     </section>
+    </div>
+    <LegalFooter/>
   </main>;
 }

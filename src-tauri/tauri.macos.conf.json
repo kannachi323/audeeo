@@ -1,0 +1,24 @@
+{
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Audeeo",
+        "width": 720,
+        "height": 320,
+        "minWidth": 480,
+        "minHeight": 224,
+        "maxHeight": 900,
+        "resizable": true,
+        "decorations": true,
+        "transparent": false,
+        "alwaysOnTop": false,
+        "shadow": true,
+        "theme": "Dark"
+      }
+    ]
+  },
+  "build": {
+    "runner": "../scripts/desktop-cargo.py"
+  }
+}

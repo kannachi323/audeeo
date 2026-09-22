@@ -29,7 +29,7 @@ it('never promotes an unconfirmed draft on disconnect and filters special tokens
   expect(events.at(-1)?.sequence).toBe(1);
 });
 
-vi.mock('../services/session-relay/src/backend', () => ({identity: async () => ({id:'test',expiresAt:Date.now()+3600000}), isDevelopmentUser:()=>true,db:vi.fn(),refreshEntitlement:vi.fn()}));
+vi.mock('../services/session-relay/src/backend', async importOriginal => ({...await importOriginal<object>(),identity: async () => ({id:'test',expiresAt:Date.now()+3600000}), isDevelopmentUser:()=>true,db:vi.fn(),refreshEntitlement:vi.fn()}));
 import relay from '../services/session-relay/src/index';
 class FakeSocket extends EventTarget {
   static OPEN = 1;
@@ -52,13 +52,13 @@ beforeEach(() => {
   vi.stubGlobal('Response', class {headers = new Headers(); constructor(public body: any, public options: any) {} });
 });
 afterEach(() => {vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals();});
-async function start(path = '/v1/realtime/soniox', extra = {}, context?: unknown) {
+async function start(path = '/v1/realtime', extra = {}, context?: unknown) {
   const response = await relay.fetch(new Request(`https://relay.test${path}`,{headers:{Upgrade:'websocket'}}), {SONIOX_API_KEY:'private-soniox-test-key', SUPABASE_SECRET_KEY:'fake', ...extra} as any);
   downstream.message({type:'start',accessToken:'fake',sourceLanguage:'en',targetLanguage:'zh',context});
   await vi.advanceTimersByTimeAsync(0);
   return response;
 }
-it('runs the real SDK through the separate relay route without an OpenAI key', async () => {
+it('runs the real SDK through the managed relay route without an OpenAI key', async () => {
   await start();
   expect(upstream.url).toBe('wss://stt-rt.soniox.com/transcribe-websocket');
   expect(upstream.sent[0]).toMatchObject({api_key:'private-soniox-test-key',translation:{type:'one_way',target_language:'zh'}});
@@ -68,30 +68,29 @@ it('runs the real SDK through the separate relay route without an OpenAI key', a
   expect(upstream.sent.at(-1)).toEqual(new Uint8Array(audio));
   upstream.message(result([{text:'Hello',is_final:true}]));
   downstream.message({type:'stop'});
+  await vi.advanceTimersByTimeAsync(0);
   expect(upstream.sent.at(-1)).toBe('');
   expect(downstream.closed).toBe(false);
   upstream.message({...result([{text:'你好',is_final:true,translation_status:'translation'}]),finished:true});
+  await vi.advanceTimersByTimeAsync(0);
   expect(downstream.sent.filter(e => e.type === 'segment').at(-1).segment).toMatchObject({sourceText:'Hello',translatedText:'你好',final:true});
   expect(downstream.sent.at(-1)).toEqual({type:'finished',reason:'finished'});
   expect(JSON.stringify(downstream.sent)).not.toContain('private-soniox-test-key');
   expect(vi.getTimerCount()).toBe(0);
 });
 it('propagates validated structured context through relay startup', async () => {
-  await start('/v1/realtime/soniox',{}, {category:'religious-spiritual',text:'A lecture on patristics',terms:['theosis'],translationTerms:[{source:'λόγος',target:'Logos'}]});
+  await start('/v1/realtime',{}, {category:'religious-spiritual',text:'A lecture on patristics',terms:['theosis'],translationTerms:[{source:'λόγος',target:'Logos'}]});
   expect(upstream.sent[0]).toMatchObject({context:{general:[{key:'domain',value:'Religious & Spiritual'}],text:'A lecture on patristics',terms:['theosis'],translation_terms:[{source:'λόγος',target:'Logos'}]}});
   expect(JSON.stringify(downstream.sent)).not.toContain('patristics');
 });
-it('uses a session-only user key without requiring a server provider key', async () => {
-  await relay.fetch(new Request('https://relay.test/v1/realtime',{headers:{Upgrade:'websocket'}}), {SUPABASE_SECRET_KEY:'fake'} as any);
-  downstream.message({type:'start',accessToken:'fake',sourceLanguage:'en',targetLanguage:'zh',provider:'soniox',providerKey:'user-soniox-key'});
-  await vi.advanceTimersByTimeAsync(0);
-  expect(upstream.url).toBe('wss://stt-rt.soniox.com/transcribe-websocket');
-  expect(upstream.sent[0]).toMatchObject({api_key:'user-soniox-key'});
-  expect(downstream.sent.at(-1).type).toBe('ready');
-  expect(JSON.stringify(downstream.sent)).not.toContain('user-soniox-key');
+it('rejects personal keys', async () => {
+ await relay.fetch(new Request('https://relay.test/v1/realtime',{headers:{Upgrade:'websocket'}}),{SONIOX_API_KEY:'server',SUPABASE_SECRET_KEY:'fake'} as any);
+ downstream.message({type:'start',accessToken:'fake',sourceLanguage:'en',targetLanguage:'zh',providerKey:'personal'});
+ await vi.advanceTimersByTimeAsync(0);expect(downstream.closed).toBe(true);
+ expect(JSON.stringify(downstream.sent)).not.toContain('personal');
 });
 it('selects Soniox via the server setting and closes it on silence', async () => {
-  await start('/v1/realtime');
+  await start('/v1/realtime', {CAPTION_PROVIDER:'soniox'});
   await vi.advanceTimersByTimeAsync(30000);
   expect(upstream.closed).toBe(true);
   expect(downstream.sent.at(-1).reason).toBe('silence timeout');
@@ -100,6 +99,7 @@ it('selects Soniox via the server setting and closes it on silence', async () =>
 it('handles provider authentication errors without exposing their raw response', async () => {
   await start();
   upstream.message({error_code:401,error_message:'private-soniox-test-key'});
+  await vi.advanceTimersByTimeAsync(0);
   expect(downstream.sent.some(e => e.type === 'error' && e.message.includes('Soniox'))).toBe(true);
   expect(JSON.stringify(downstream.sent)).not.toContain('private-soniox-test-key');
   expect(downstream.closed).toBe(true);

@@ -181,19 +181,11 @@ public func windowMode(_ raw: UnsafeMutableRawPointer, _ overlay: Bool, _ clear:
     window.isMovable = true
     window.level = overlay ? .floating : .normal
     window.collectionBehavior = overlay ? [.canJoinAllSpaces, .fullScreenAuxiliary] : [.managed, .fullScreenPrimary]
-    let _ = clear // CSS owns the single visible panel surface and accessibility fallback.
-    func clearWebBackground(_ view: NSView) {
-        if let web = view as? WKWebView {
-            // Same macOS WKWebView background policy used by Wry transparency.
-            web.setValue(false, forKey: "drawsBackground")
-            web.underPageBackgroundColor = .clear
-        }
-        view.subviews.forEach(clearWebBackground)
-    }
+    let _ = clear // The native surface owns its background and border alpha.
+    setNativeCaptionMode(window, overlay)
     if let content = window.contentView {
-        clearWebBackground(content)
         // Do not mask or relayer Tauri's WebView host during native resizing.
-        // The single rounded surface is drawn and clipped by CSS.
+        // Each renderer clips its own rounded surface.
         content.layer?.masksToBounds = false
         content.layer?.cornerRadius = 0
         let existing = content.subviews.first { $0.identifier?.rawValue == "audeeo-overlay-grip" }
@@ -207,9 +199,12 @@ public func windowMode(_ raw: UnsafeMutableRawPointer, _ overlay: Bool, _ clear:
             content.addSubview(grip)
         }
         if !overlay { existing?.removeFromSuperview() }
+        if overlay, let surface = captionOverlay(window) {
+            content.subviews.compactMap { $0 as? PanelDragRegion }.forEach { $0.alphaValue = surface.gripOpacity }
+        }
     }
     window.isOpaque = !overlay
-    window.backgroundColor = overlay ? .clear : .windowBackgroundColor
+    window.backgroundColor = overlay ? .clear : NSColor(calibratedWhite: 0.098, alpha: 1)
     window.hasShadow = !overlay
     window.titleVisibility = overlay ? .hidden : .visible
     window.titlebarAppearsTransparent = overlay
@@ -229,6 +224,7 @@ final class ControlsPopover: NSObject, NSPopoverDelegate {
     let popover = NSPopover()
     var closed: (@convention(c) (Int64) -> Void)?
     var presentation: Int64 = 0
+    private weak var hostedWindow: NSWindow?
     override init() {
         super.init()
         popover.appearance = NSAppearance(named: .darkAqua)
@@ -239,7 +235,9 @@ final class ControlsPopover: NSObject, NSPopoverDelegate {
     func show(main: NSWindow, host: NSWindow, anchor: NSRect, height: CGFloat) {
         guard let parent = main.contentView else { return }
         host.orderOut(nil)
-        if popover.contentViewController == nil {
+        // The Tauri host can be replaced after a document reload or recovery.
+        // Never keep displaying the WKWebView owned by a destroyed host.
+        if popover.contentViewController == nil || hostedWindow !== host {
             guard let content = host.contentView else { return }
             // Tao's ns_view() unconditionally unwraps this window's contentView.
             // Keep its root installed throughout the host lifetime, including teardown.
@@ -248,6 +246,13 @@ final class ControlsPopover: NSObject, NSPopoverDelegate {
                 return view.subviews.lazy.compactMap { findWebView($0) }.first
             }
             guard let web = findWebView(content) else { return }
+            // Suppress an old presentation's dismissal while replacing its view.
+            if popover.isShown {
+                let callback = closed
+                closed = nil
+                popover.performClose(nil)
+                closed = callback
+            }
             if web === content {
                 // A bare WKWebView host must also retain a non-null native root.
                 host.contentView = NSView(frame: content.frame)
@@ -260,15 +265,17 @@ final class ControlsPopover: NSObject, NSPopoverDelegate {
             web.autoresizingMask = [.width, .height]
             controller.view.addSubview(web)
             popover.contentViewController = controller
+            hostedWindow = host
         }
         let rect = NSRect(x: anchor.minX,
             y: parent.isFlipped ? anchor.minY : parent.bounds.height - anchor.maxY,
             width: anchor.width, height: anchor.height)
         let screenAnchor = main.convertToScreen(parent.convert(rect, to: nil))
         let screen = (main.screen ?? NSScreen.main)?.visibleFrame
-        // Reserve the arrow/chrome and scroll long menus instead of flipping above captions.
-        let availableBelow = screen.map { max(1, screenAnchor.minY - $0.minY - 28) } ?? height
-        popover.contentSize = NSSize(width: 310, height: min(height, availableBelow))
+        // Let AppKit flip above the trigger near the bottom of the screen.
+        // Clamping only to space below could produce a one-point, invisible menu.
+        let available = screen.map { max(80, max(screenAnchor.minY - $0.minY, $0.maxY - screenAnchor.maxY) - 28) } ?? height
+        popover.contentSize = NSSize(width: 310, height: min(height, available))
         if popover.isShown { return } // Resizing an open select must preserve keyboard focus.
         popover.show(relativeTo: rect, of: parent, preferredEdge: .minY)
         if let view = popover.contentViewController?.view {
@@ -285,9 +292,12 @@ public func showControlsPopover(_ main: UnsafeMutableRawPointer, _ host: UnsafeM
     let controls = ControlsPopover.shared
     controls.presentation = presentation
     controls.closed = closed
-    controls.show(main: Unmanaged<NSWindow>.fromOpaque(main).takeUnretainedValue(),
+    let window = Unmanaged<NSWindow>.fromOpaque(main).takeUnretainedValue()
+    let surface = captionOverlay(window)
+    let anchor = surface?.isHidden == false ? surface?.controlsAnchor : nil
+    controls.show(main: window,
         host: Unmanaged<NSWindow>.fromOpaque(host).takeUnretainedValue(),
-        anchor: NSRect(x: x, y: y, width: width, height: height), height: contentHeight)
+        anchor: anchor ?? NSRect(x: x, y: y, width: width, height: height), height: contentHeight)
 }
 @_cdecl("audeeo_close_controls_popover")
 public func closeControlsPopover() {

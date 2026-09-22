@@ -1,42 +1,47 @@
 # Audeeo architecture
 
-Audeeo is a Tauri 2 / React application with native Apple capture and presentation. Session intelligence is an explicit, on-demand history feature; it never runs when a recording ends.
+Audeeo is a desktop app for macOS and Windows. React and TypeScript own the
+interface and session lifecycle. Rust provides the Tauri shell, authentication
+callbacks, local storage, and desktop capture. Swift provides macOS audio,
+AppKit presentation, and Mac App Store billing.
 
 ```text
-macOS private Core Audio process tap + native AVAudioEngine microphone
-  → bounded 20 ms PCM mixer with independent model-input gains
-  → 16 kHz mono PCM → authenticated Cloudflare WebSocket
-  → Soniox stt-rt-v5 structured context + transcription/translation
-  → revisioned source and translated segment events
-  → React controls / public AppKit subtitle panel / iOS native AVKit PiP
+Microphone or desktop audio (all playback or one app)
+  → 16 kHz mono PCM with input gain/mute
+  → personal provider connection, or authenticated hosted relay
+  → source captions, translation, and optional spoken output
+  → desktop caption window and optional saved session
 ```
 
-iOS 27 owns ScreenCaptureKit device-playback capture (or optional microphone capture), its URLSession WebSocket, subtitle rendering, and a bounded finalized-text disk outbox in Swift. React controls it through commands. It does not depend on a canvas, video element, Web Audio, or WebView timers for ongoing capture. Apple's content-sharing picker owns consent, and Audeeo has no legacy capture extension.
+Each session captures one input. macOS uses native microphone capture and Core
+Audio process taps; Windows uses WASAPI. Desktop capture excludes Audeeo when
+capturing all playback. Translated speech has a separate playback path. See
+[audio sources](audio-sources.md) for platform requirements and capture limits.
 
-The Mac uses one NSWindow for captions and Settings. A shared presentation reducer tracks session phase, playback, and page; only session/playback selects normal versus overlay level. A private Core Audio process tap excludes Audeeo and copies source playback without muting or remonitoring it. On macOS and Windows, microphone and desktop PCM are independently resampled, gained or virtually muted, time-aligned into bounded 20 ms frames, peak-limited, and sent to the provider as one 16 kHz mono stream. Translated PCM remains a separate playback path. The minimum app targets are macOS 13 and iOS 27; desktop playback capture requires macOS 14.2+ or Windows 10 build 20348+. See [audio sources](audio-sources.md) and [OpenAI streaming](openai-captions.md) for lifecycle and buffering details.
+## Sessions and storage
 
-`shared/pipeline.ts` owns segment IDs, time ranges, revisions, language pair, sequence, provisional/final flags, source text, translation and completion state. Interim source text appears immediately. The local Context configuration is bounded to 10,000 characters and is passed as Soniox general/text/terms/translation terms at the next session start. It is never synchronized.
+`src/lib/directCaptions.ts` connects BYOK sessions to supported providers.
+`src/lib/realtime.ts` connects hosted sessions to the Cloudflare relay in
+`services/session-relay`. Shared caption, language, context, and billing types
+live in `shared/`.
 
-Translation is serialized with 32 pending items and a 256-segment working set. A revision superseding an in-flight request invalidates the result. Failure preserves original text. Stop requests Deepgram CloseStream, then drains translation for up to 12 seconds; unfinished work becomes an explicit translation-error instead of hanging. Reconnection starts a distinct session rather than silently replaying uncertain audio. UI display keeps the most recent 128 segments; this does not define the translation source or synchronized history.
+Supabase handles account authentication and cloud history. Desktop OAuth opens
+the system browser and receives the callback through a temporary loopback
+listener. Local caption history and retryable uploads are owned by the client;
+saving sessions is optional. Context settings remain local. See
+[Supabase setup](supabase.md) and
+[session intelligence](session-intelligence.md).
 
-## Identity, history and metering
+## Billing and presentation
 
-Apple/Google use Supabase PKCE. Apple platforms use a process-owned system authentication session and Keychain storage; Windows uses the default browser, a short-lived random-port loopback callback, and encrypted local credential storage. Callback URLs are validated and queued until the WebView is ready. OAuth credentials and redirect allowlists need project configuration. Audeeo-owned provider keys exist only in relay secrets. A user may instead select a supported provider and supply a personal key; it remains in process memory, is submitted to the relay in the authenticated WebSocket start message, is used only to open the chosen provider connection, and is neither persisted nor synchronized by Audeeo. The first WebSocket message authenticates using a Supabase access token; tokens never enter the socket URL. Supabase validates identity, and the socket is bounded by token expiry and session duration. Personal-key sessions bypass Audeeo's metered allowance but retain the relay's authentication, duration, and traffic protections.
+Hosted usage is enforced by server-side reservations. RevenueCat supplies
+subscription and purchase state; clients cannot grant themselves allowances.
+Mac App Store builds use the native SDK, while direct builds use browser checkout.
+See [billing](revenuecat.md) and [minute packs](minute-packs.md).
 
-Caption history is one owner-scoped `caption_sessions` document with transcript and optional summary JSONB. Finalized captions are saved locally while recording. After the session ends, the outbox uploads the completed document in one request; reconnect and history opening retry failed uploads. There is no ongoing history upload or live cross-device replay. iOS retains text natively during WebView suspension and hands it to the local outbox on foregrounding. Interrupted local drafts can be recovered as past sessions when no recording is active. History lists fetch indexed metadata only, and full documents load on demand.
+The Mac caption surface uses public AppKit views while the session WebView stays
+alive. Settings restore that same WebView. Native controls send actions to the
+React session controller; caption presentation does not own the provider stream.
+Windows uses the Tauri window and React caption interface.
 
-Owner-checked document RPCs merge revisions under a row lock, so retries cannot downgrade completed translations. Clients cannot directly write session or summary columns. Deletion clears the document and leaves a tombstone, including when deletion precedes the first upload. Account deletion cascades through owned history and usage.
-
-The optional summary lives in `caption_sessions.summary`. The authenticated relay reads the canonical completed transcript, authorizes a current subscription or an in-memory OpenAI BYOK key, and calls `gpt-5.6-luna` with low reasoning, Structured Outputs and `store: false`. A source-version compare-and-set protects the summary save against concurrent transcript changes or deletion. Titles, recap, chapters, terms, action items and exact-span quotations are stored together; source changes invalidate the summary. Q&A uses that same session document, while question history remains in the open client dialog.
-
-Usage is enforced by service-role-only PostgreSQL reservations, serialized on the owner's allowance row across devices. Each reservation charges up to 15 seconds before service is supplied. Duplicate reservation IDs do not charge twice. Unused reserved seconds are currently not refunded; interruption can conservatively consume up to 15 seconds. The free allowance is lifetime-capped. A paid billing-period allowance resets on a verified new period and has no rollover. The same server-only `billing_accounts` row correlates that allowance with the verified RevenueCat customer, store subscription transaction, entitlement, product, period, and reconciliation time. Account usage is read from one server-side snapshot RPC rather than reconstructed by clients. Commercial allowance amounts remain explicit database configuration rather than client claims. Two operator accounts receive unlimited, non-billable reservations based only on their verified `auth.users.email`. A user may instead provide an OpenAI or Soniox key for the current app process; the relay uses that key without consuming allowance and does not persist or echo it. Server authorization does not trust a local purchase-success flag.
-
-RevenueCat webhook IDs are deduplicated after authoritative subscriber reconciliation. Older reconciliation snapshots cannot overwrite newer ones. Apple restoration uses the native SDK; web refresh retrieves the signed-in customer. Both reconcile server entitlement state. Native iOS Paywalls and Customer Center are exposed through the Swift bridge; browser paywalls use purchases-js. Monthly included seconds renew at purchase anniversaries for yearly subscriptions, and session startup refreshes authoritative entitlement state. The Swift package contains the real RevenueCat adapter, and macOS and iOS Tauri builds compile and link it automatically. The purchases-enabled archive and resource-bundle packaging must be used for release.
-
-Qwen streaming TTS and a bounded native playback adapter exist for integration/qualification. Spoken output is deliberately disabled in the shipped controls until playback routing, feedback prevention, and speech allowance charging are connected and verified. This is unfinished implementation, not a tested feature.
-
-## Mac presentation and identity
-
-React owns the small authentication/settings companion and the session controller. No authenticated session means sign-in only. A successful session opens the native AppKit overlay and hides the companion. The overlay remains visible at rest, during capture and after stop; settings open independently and do not terminate capture when closed. Sign-out ends the session and dismisses the overlay.
-
-The overlay uses a clear `NSPanel` and native layers, not a transparent WebView. Running Transparent mode has no surface fill, border or window shadow; a separate hover/keyboard control row stays readable when revealed. Solid mode and system/user reduced transparency supply an opaque caption surface. Native buttons emit only session-toggle or settings/account intents back to React. Presentation receives source/translation text plus appearance/status preferences; it does not drive the transcript or translation pipeline.
+The website is a separate Vite project in `website/`.

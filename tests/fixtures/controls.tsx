@@ -10,14 +10,18 @@ function Fixture() {
   const params = new URLSearchParams(location.search);
   const [group,setGroup]=useState<ControlGroup|null>((params.get('group') as ControlGroup) || null);
   const [translationContext,setTranslationContext]=useState(emptySessionContext);
-  const [input,setInput]=useState<'microphone'|'system'|'mixed'>('mixed');
+  const [input,setInput]=useState<'microphone'|'system'>('system');
   const [captionMode,setCaptionMode]=useState<'subtitles'|'translate'>('translate');
   const [source,setSource]=useState('en'),[target,setTarget]=useState('zh');
   const [silence,setSilence]=useState({timeoutSeconds:105,thresholdDbfs:-71});
   const [microphoneGain,setMicrophoneGain]=useState(1),[desktopGain,setDesktopGain]=useState(1),[translatedVolume,setTranslatedVolume]=useState(1);
   const [microphoneMuted,setMicrophoneMuted]=useState(false),[desktopMuted,setDesktopMuted]=useState(false),[translatedMuted,setTranslatedMuted]=useState(false);
-  const props={input,setInput,captionMode,setCaptionMode,source,setSource,target,setTarget,silence,setSilence,microphoneGain,setMicrophoneGain,desktopGain,setDesktopGain,translatedVolume,setTranslatedVolume,microphoneMuted,setMicrophoneMuted,desktopMuted,setDesktopMuted,translatedMuted,setTranslatedMuted,translationContext,setTranslationContext,active:false,systemAudio:true,applicationAudio:false,platform:'browser',captureSourceId:'all',setCaptureSourceId:()=>{},inputMix:true,translatedPlayback:true};
+  const props={input,setInput,captionMode,setCaptionMode,source,setSource,target,setTarget,silence,setSilence,microphoneGain,setMicrophoneGain,desktopGain,setDesktopGain,translatedVolume,setTranslatedVolume,microphoneMuted,setMicrophoneMuted,desktopMuted,setDesktopMuted,translatedMuted,setTranslatedMuted,translationContext,setTranslationContext,active:false,systemAudio:true,applicationAudio:false,platform:'browser',captureSourceId:'all',setCaptureSourceId:()=>{},inputGain:true,translatedPlayback:true,
+    onFillContextFromScreen:()=>setTranslationContext({category:'education',text:'A lecture introducing thermodynamics and energy transfer.',terms:['entropy','enthalpy'],translationTerms:[]}),
+    refillContextSessions:[{id:'physics',label:'Thermodynamics workshop'},{id:'blank',label:'Weekly planning (blank)',disabled:true}],
+    onRefillContextFromSession:()=>setTranslationContext({category:'science',text:'A lecture introducing thermodynamics and energy transfer.',terms:['entropy','enthalpy'],translationTerms:[{source:'entropy',target:'熵'}]}),
+    screenCapturePending:params.has('pending'),screenCaptureIssue:params.has('error')?'Could not capture the screen. Check screen recording access and retry.':''};
   if(params.has('detached')) return <NativeSelectProvider><main className="detached-controls" style={{width:Number(params.get('width'))||310,height:360}}><AudioControls {...props} group={group||'context'}/></main></NativeSelectProvider>;
-  return <main className={`subtitle-panel ${params.has('mobile')?'mobile-panel':''}`} style={{width:Number(params.get('width'))||760,height:500}}><header className="panel-header">Audeeo</header><div className="page-content"><div className="captions"><p className="translated-caption">Live captions appear here.</p></div></div><CaptionToolbar {...props} open={group} setOpen={setGroup} detached={false}/></main>;
+  return <main className="subtitle-panel" style={{width:Number(params.get('width'))||760,height:500}}><header className="panel-header">Audeeo</header><div className="page-content"><div className="captions"><p className="translated-caption">Live captions appear here.</p></div></div><CaptionToolbar {...props} open={group} setOpen={setGroup} detached={false}/></main>;
 }
 createRoot(document.getElementById('root')!).render(<Fixture/>);

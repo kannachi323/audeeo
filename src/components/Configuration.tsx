@@ -58,7 +58,7 @@ export function Configuration({
         <small>{systemAudioDescription(platform)}</small>
       </div>
       <div className="setting-group">
-        <label>Caption mode<Select label="Caption mode" value={mode} disabled={active} onChange={onMode} options={[{value:'subtitles',label:'Subtitles'},{value:'translate',label:'Translation'}]}/></label>
+        <label>Caption mode<Select label="Caption mode" value={mode} disabled={active} onChange={onMode} options={[{value:'subtitles',label:'Captions'},{value:'translate',label:'Translation'}]}/></label>
         <h2>{mode === "subtitles" ? "Caption language" : "Translation direction"}</h2>
         <div className="language-fields">
           <label>Speaker<Select label="Speaker language" value={source} disabled={active} onChange={onSource} options={mode === 'subtitles' ? transcriptionLanguages : translationSources}/></label>

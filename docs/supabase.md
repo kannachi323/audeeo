@@ -8,11 +8,11 @@ The root `.env` supplies `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and the ser
 
 The Supabase redirect allowlist includes:
 
-- `audeeo://auth/callback` for iOS authentication, email confirmation, and desktop fallback links.
+- `audeeo://auth/callback` for email confirmation and desktop fallback links.
 - `http://127.0.0.1:*/auth/callback` for macOS and Windows' short-lived, random-port loopback callback.
 - `http://localhost:1420` and `http://127.0.0.1:1420` for browser development.
 
-Add the deployed app's exact URL before shipping a browser build, and set `AUTH_REDIRECT_URL` to it. OAuth uses PKCE. iOS opens `ASWebAuthenticationSession`; macOS and Windows open the default system browser and listen on a random localhost port for up to five minutes. The loopback response gives the browser a real completion page, passes the one-time code to the running Audeeo instance, and avoids leaving Google on a loading page after a custom-protocol handoff. The registered `audeeo://` scheme remains available for email confirmation, fallback links, and iOS. Native session storage uses the existing platform storage commands; browser sessions use the Supabase client storage. A session refresh/sign-in event starts history synchronization outside the Supabase auth callback lock.
+Add the deployed app's exact URL before shipping a browser build, and set `AUTH_REDIRECT_URL` to it. OAuth uses PKCE. macOS and Windows open the default system browser and listen on a random localhost port for up to five minutes. The loopback response gives the browser a real completion page, passes the one-time code to the running Audeeo instance, and avoids leaving Google on a loading page after a custom-protocol handoff. The registered `audeeo://` scheme remains available for email confirmation, fallback links. Native session storage uses the existing platform storage commands; browser sessions use the Supabase client storage. A session refresh/sign-in event starts history synchronization outside the Supabase auth callback lock.
 
 ## Provider credentials
 

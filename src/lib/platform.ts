@@ -7,14 +7,12 @@ export type Capabilities = {
   microphone: boolean;
   systemAudio: boolean;
   globalOverlay: boolean;
-  nativePip?: boolean;
-  nativeSession?: boolean;
   applicationAudio?: boolean;
-  inputMix?: boolean;
+  inputGain?: boolean;
   translatedPlayback?: boolean;
 };
 export type CaptureApplication = { id: string; name: string };
-export type InputMode = "microphone" | "system" | "mixed";
+export type InputMode = "microphone" | "system";
 export type CaptureGains = { microphone: number; system: number };
 export type CaptureSources = {
   microphone: string;
@@ -25,18 +23,12 @@ export type CaptureSources = {
 export function systemAudioLabel(platform: string) {
   if (platform === "macos" || platform === "windows")
     return "Desktop audio (all apps)";
-  if (platform === "android") return "Device audio (allowed apps)";
-  if (platform === "ios") return "Device playback (system picker)";
   return "Device audio";
 }
 
 export function systemAudioDescription(platform: string) {
   if (platform === "macos" || platform === "windows")
     return "Captures all desktop playback, or choose one active application below.";
-  if (platform === "android")
-    return "Captures playback that Android and the source app allow after system approval.";
-  if (platform === "ios")
-    return "Opens Apple’s system picker and captures the device playback you approve.";
   return "Playback capture isn’t available on this device.";
 }
 export interface AudioInput {
@@ -55,7 +47,7 @@ export async function capabilities(): Promise<Capabilities> {
       systemAudio: false,
       globalOverlay: false,
       applicationAudio: false,
-      inputMix: false,
+      inputGain: false,
       translatedPlayback: true,
     };
   return invoke("platform_capabilities");

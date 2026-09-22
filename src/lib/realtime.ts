@@ -1,10 +1,12 @@
 import { defaultSilence, type SilenceSettings } from "../../shared/silence";
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { Language, Segment } from "../../shared/pipeline";
-import type { ProviderCredentials } from "./providers";
+import type {SessionBillingOptions} from "../../shared/minutePacks";
 import type { SessionContext } from "../../shared/context";
+import { config } from "./config";
 export type RelayEvent =
+  | {type:'billing'; voiceEnabled:boolean; rate:1|3; paused:boolean;allowPurchasedMinutes:boolean;message?:string}
+  | {type:'pack_consent_required'}
+  | {type:'audio_reset'}
   | { type: "audio"; pcm: string; sampleRate: 24000 }
   | { type: "ready"; sessionId: string }
   | { type: "segment"; segment: Segment }
@@ -16,6 +18,7 @@ export class RealtimeTranslationClient {
   private finished?: Promise<void>;
   private resolveFinished?: () => void;
   private ready = false;
+  private paused = false;
   private didFinish = false;
   constructor(
     private endpoint: string,
@@ -26,7 +29,7 @@ export class RealtimeTranslationClient {
     sourceLanguage: Language,
     targetLanguage: Language,
     silence: SilenceSettings = defaultSilence,
-    credentials?: ProviderCredentials,
+    billing?: SessionBillingOptions,
     context?: SessionContext,
   ) {
     const url = new URL("/v1/realtime", this.endpoint);
@@ -52,7 +55,8 @@ export class RealtimeTranslationClient {
             sourceLanguage,
             targetLanguage,
             silence,
-            ...(credentials?.apiKey ? { provider: credentials.provider, providerKey: credentials.apiKey } : {}),
+            ...billing,
+            sandbox: config.billingEnvironment === 'sandbox',
             ...(context ? {context} : {}),
           }),
         ),
@@ -60,6 +64,7 @@ export class RealtimeTranslationClient {
       socket.addEventListener("message", (event) => {
         try {
           const message = JSON.parse(event.data) as RelayEvent;
+          if(message.type==='billing')this.paused=message.paused;
           if (message.type === "ready") {
             this.ready = true;
             clearTimeout(timeout);
@@ -94,8 +99,12 @@ export class RealtimeTranslationClient {
       });
     });
   }
+  control(message:{type:"voice";enabled:boolean}|{type:"use_packs"}) {
+    try { if(this.socket?.readyState!==WebSocket.OPEN)throw new Error('closed');this.socket.send(JSON.stringify(message)); }
+    catch {this.onEvent({type:'status',state:'control_failed',message:'Could not update session usage. Retry the control.'});}
+  }
   sendAudio(pcm: Int16Array) {
-    if (!this.ready || this.socket?.readyState !== WebSocket.OPEN) return;
+    if (this.paused || !this.ready || this.socket?.readyState !== WebSocket.OPEN) return;
     if (this.socket.bufferedAmount > 128000) {
       this.onEvent({
         type: "error",
@@ -133,91 +142,8 @@ export class RealtimeTranslationClient {
 }
 
 export interface CaptionConnection {
-  connect(token: string, source: Language, target: Language, silence?: SilenceSettings, credentials?: ProviderCredentials, context?: SessionContext): Promise<void>;
+  connect(token: string, source: Language, target: Language, silence?: SilenceSettings, billing?: SessionBillingOptions, context?: SessionContext): Promise<void>;
+  control(message:{type:"voice";enabled:boolean}|{type:"use_packs"}):void;
   sendAudio(pcm: Int16Array): void;
   finish(): Promise<void>;
-}
-export class NativeRelayClient implements CaptionConnection {
-  private unlisten?: UnlistenFn;
-  private ended?: () => void;
-  private didFinish = false;
-  constructor(
-    private endpoint: string,
-    private onEvent: (event: RelayEvent) => void,
-    private owner: string,
-    private save: boolean,
-    private input: "microphone" | "system" = "microphone",
-    private captureSourceId: string = "all",
-  ) {}
-  async connect(token: string, source: Language, target: Language, silence: SilenceSettings = defaultSilence, credentials?: ProviderCredentials, context?: SessionContext) {
-    this.didFinish = false;
-    await new Promise<void>(async (resolve, reject) => {
-      const timer = setTimeout(() => {
-        reject(new Error("Native session timed out. Retry."));
-        void this.finish();
-      }, this.input === "system" ? 120000 : 20000);
-      try {
-        this.unlisten = await listen<string>(
-          "native-session-event",
-          ({ payload }) => {
-            const e = JSON.parse(payload) as RelayEvent;
-            if (e.type === "ready") {
-              clearTimeout(timer);
-              resolve();
-            }
-            if (e.type === "error") {
-              clearTimeout(timer);
-              reject(new Error(e.message));
-            }
-            if (e.type === "finished") {
-              this.didFinish = true;
-              this.ended?.();
-              const unlisten = this.unlisten;
-              this.unlisten = undefined;
-              unlisten?.();
-            }
-            this.onEvent(e);
-          },
-        );
-        await invoke("start_native_session", {
-          endpoint: this.endpoint,
-          token,
-          source,
-          target,
-          owner: this.owner,
-          save: this.save,
-          silenceTimeout: silence.timeoutSeconds,
-          silenceThreshold: silence.thresholdDbfs,
-          provider: credentials?.provider ?? "",
-          providerKey: credentials?.apiKey ?? "",
-          context: JSON.stringify(context ?? null),
-          input: this.input,
-          captureSourceId: this.captureSourceId === "all" ? "" : this.captureSourceId,
-        });
-      } catch (e) {
-        clearTimeout(timer);
-        reject(e);
-      }
-    });
-  }
-  sendAudio(_pcm: Int16Array) {} // The native capture owner sends audio directly.
-  async finish() {
-    if (this.didFinish) {
-      const unlisten = this.unlisten;
-      this.unlisten = undefined;
-      unlisten?.();
-      return;
-    }
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const ended = new Promise<void>((resolve) => {
-      this.ended = resolve;
-      timer = setTimeout(resolve, 21000);
-    });
-    await invoke("stop_native_session");
-    await ended;
-    clearTimeout(timer);
-    const unlisten = this.unlisten;
-    this.unlisten = undefined;
-    unlisten?.();
-  }
 }

@@ -1,4 +1,9 @@
 export type AccountUsage = {
+  sandbox?: { subscriptionActive: boolean; purchasedSeconds: number; productId: string | null; expiresAt: string | null };
+  packsEnabled?: boolean;
+  purchasedSeconds?: number;
+  purchaseRevision?: number;
+  totalRemainingSeconds?: number | null;
   active: boolean;
   unlimited: boolean;
   usedSeconds: number;

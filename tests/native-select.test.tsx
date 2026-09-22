@@ -28,7 +28,7 @@ it('closes a custom menu when its trigger is clicked again',async()=>{
 });
 it('keeps selectors disabled during an active session',async()=>{
   const change=vi.fn();
-  render(<Select label="Caption mode" value="subtitles" disabled onChange={change} options={[{value:'subtitles',label:'Subtitles'},{value:'translate',label:'Translation'}]}/>);
+  render(<Select label="Caption mode" value="subtitles" disabled onChange={change} options={[{value:'subtitles',label:'Captions'},{value:'translate',label:'Translation'}]}/>);
   await userEvent.click(screen.getByRole('combobox'));
   expect(screen.queryByRole('listbox')).toBeNull();
   expect(change).not.toHaveBeenCalled();

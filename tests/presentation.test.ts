@@ -30,3 +30,11 @@ it('resamples capture across arbitrary packet boundaries',()=>{
   const a=new SourceResampler(),b=new SourceResampler();
   expect([...a.convert(samples)]).toEqual([...b.convert(samples.slice(0,17)),...b.convert(samples.slice(17,44)),...b.convert(samples.slice(44))]);
 });
+it('keeps layout probes small for long streaming transcripts without truncating wide views',()=>{
+  const text='字'.repeat(100000)+'最新';
+  let largest=0;
+  expect(captionSuffix(text,candidate=>{largest=Math.max(largest,candidate.length);return candidate.length<=40;})).toBe(text.slice(-40));
+  expect(largest).toBeLessThanOrEqual(128);
+  expect(captionSuffix(text,candidate=>candidate.length<=2000)).toBe(text.slice(-2000));
+  expect(captionSuffix('short',()=>true)).toBe('short');
+});

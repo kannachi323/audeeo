@@ -41,38 +41,6 @@ fn main() {
                 .into_owned(),
         );
     }
-    // iOS must never silently compile the no-SDK purchase stub.
-    if native_archive.is_none() && std::env::var("CARGO_CFG_TARGET_OS").unwrap() == "ios" {
-        let root = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap())
-            .parent()
-            .unwrap()
-            .to_path_buf();
-        let target = std::env::var("TARGET").unwrap();
-        let simulator = target.ends_with("sim") || target.starts_with("x86_64");
-        let platform = if simulator { "ios-simulator" } else { "ios" };
-        let sdk = if simulator {
-            "iphonesimulator"
-        } else {
-            "iphoneos"
-        };
-        println!("cargo:rerun-if-changed=../native/apple/Package.swift");
-        println!("cargo:rerun-if-changed=../native/apple/Package.resolved");
-        println!("cargo:rerun-if-changed=../native/apple/Sources");
-        println!("cargo:rerun-if-changed=../scripts/apple-native-build.sh");
-        let status = std::process::Command::new("sh")
-            .arg(root.join("scripts/apple-native-build.sh"))
-            .arg(platform)
-            .status()
-            .expect("Xcode is required for iOS billing");
-        assert!(status.success(), "RevenueCat iOS build failed");
-        native_archive = Some(
-            root.join(format!(
-                "native/apple/.build/{platform}/Build/Products/Release-{sdk}/libAudeeoNative.a"
-            ))
-            .to_string_lossy()
-            .into_owned(),
-        );
-    }
     if let Some(ref archive) = native_archive {
         let archive = std::path::Path::new(archive);
         assert!(
@@ -117,8 +85,6 @@ fn main() {
         println!("cargo:rustc-link-lib=static=AudeeoNative");
         for framework in [
             "AVFoundation",
-            "AuthenticationServices",
-            "LocalAuthentication",
             "Security",
             "StoreKit",
             "SwiftUI",
@@ -127,15 +93,8 @@ fn main() {
         ] {
             println!("cargo:rustc-link-lib=framework={framework}");
         }
-        let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
-        if os == "macos" {
-            println!("cargo:rustc-link-lib=framework=AppKit");
-            println!("cargo:rustc-link-lib=framework=CoreAudio");
-        } else {
-            for framework in ["UIKit", "AVKit", "CoreMedia", "CoreVideo"] {
-                println!("cargo:rustc-link-lib=framework={framework}");
-            }
-        }
+        println!("cargo:rustc-link-lib=framework=AppKit");
+        println!("cargo:rustc-link-lib=framework=CoreAudio");
         println!("cargo:rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
     }
     tauri_build::build()

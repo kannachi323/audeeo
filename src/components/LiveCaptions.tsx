@@ -3,7 +3,14 @@ import { useLayoutEffect, useRef, useState } from 'react';
 /** Layout-only pagination: retain a measured suffix, independently of provider items. */
 export function captionSuffix(text: string, fits: (text: string) => boolean) {
   const chars = Array.from(text.replace(/\s+/gu, ' '));
-  let low = 0, high = chars.length;
+  // Only measure the recent tail. Measuring half of an ever-growing transcript
+  // forces increasingly expensive synchronous layouts on every streamed token.
+  let high = chars.length;
+  let low = Math.max(0, high - 128);
+  while (low > 0 && fits(chars.slice(low).join(''))) {
+    high = low;
+    low = Math.max(0, chars.length - (chars.length - low) * 2);
+  }
   while (low < high) {
     const mid = Math.floor((low + high) / 2);
     if (fits(chars.slice(mid).join(''))) high = mid; else low = mid + 1;
@@ -31,7 +38,8 @@ function CaptionLine({text, lines, size, lang, kind}: {text: string; lines: numb
     };
     update();
     let disposed = false;
-    void document.fonts?.ready.then(() => { if (!disposed) update(); });
+    if (document.fonts?.status === 'loading')
+      void document.fonts.ready.then(() => { if (!disposed) update(); });
     let previousWidth = element.clientWidth;
     let frame = 0;
     const observer = new ResizeObserver(() => {

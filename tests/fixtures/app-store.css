@@ -1,0 +1,36 @@
+/* Promotional layout only. Panels retain production UI and styles. */
+html,body,#root{width:1440px;height:900px;overflow:hidden;background:#101010;}
+.showcase{position:relative;width:1440px;height:900px;overflow:hidden;background:#101010;color:#f4f4f4;font-family:system-ui,-apple-system,BlinkMacSystemFont,sans-serif;}
+.showcase-copy{position:absolute;left:80px;top:76px;width:1200px;text-align:left;}
+.showcase-copy h1{margin:0;font-size:68px;line-height:1.07;font-weight:600;letter-spacing:-3.1px;text-wrap:balance;}
+.showcase-copy p{font-size:23px;line-height:1.5;letter-spacing:-.3px;color:#aaa;margin:24px 0 0;text-wrap:balance;}
+.app-shadow{position:absolute;border-radius:20px;box-shadow:none;}
+.app-shadow>.subtitle-panel{height:100%;border-radius:20px;}
+.control-window{transform-origin:top left;background:#232323;border:1px solid #555;border-radius:12px;overflow:hidden;}
+.control-window .detached-controls{position:relative;height:auto;padding:14px;background:#232323;}
+.hero-caption{left:80px;top:285px;width:1280px;height:280px;}
+.input-window{left:140px;top:610px;width:390px;transform:scale(1.16);}
+.audio-window{left:849px;top:610px;width:390px;transform:scale(1.16);}
+.shot-2 .showcase-copy{left:80px;top:92px;width:590px;}
+.shot-2 .showcase-copy h1{font-size:76px;}
+.shot-2 .showcase-copy p{width:485px;}
+.translation-caption{left:561px;top:335px;width:799px;height:320px;}
+.language-window{left:80px;top:470px;width:335px;transform:scale(1.13);}
+.shot-3 .showcase-copy{left:742px;top:125px;width:610px;}
+.context-caption{left:742px;top:529px;width:620px;height:278px;}
+.context-window{left:80px;top:119px;width:475px;transform:scale(1.16);}
+.shot-4 .showcase-copy{left:987px;top:300px;width:373px;}
+.shot-4 .showcase-copy h1{font-size:64px;letter-spacing:-2.8px;}
+.history-window{left:80px;top:122px;width:730px;height:565px;transform:scale(1.12);transform-origin:top left;overflow:hidden;border:1px solid #454545;}
+.shot-5 .showcase-copy{left:80px;top:239px;width:467px;}
+.shot-5 .showcase-copy h1{font-size:66px;}
+.shot-5 .showcase-copy p{width:365px;}
+.summary-window{position:absolute;left:626px;top:72px;width:735px;height:756px;transform-origin:top left;}
+.summary-window .dialog-backdrop{position:absolute;inset:0;background:transparent;padding:0;align-items:start;}
+.summary-window .intelligence-dialog{max-height:100%;width:100%;border-color:#454545;box-shadow:none;}
+.shot-6 .showcase-copy{left:80px;top:105px;width:735px;}
+.shot-6 .showcase-copy h1{font-size:68px;}
+.appearance-caption{left:80px;top:469px;width:733px;height:310px;}
+.appearance-window{left:890px;top:95px;width:440px;height:635px;transform:scale(1.08);transform-origin:top left;border:1px solid #454545;overflow:hidden;}
+.showcase .subtitle-panel>.page-content{animation:none;}
+.showcase *{animation:none!important;transition:none!important;}

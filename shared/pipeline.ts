@@ -13,6 +13,9 @@ export type Segment = {
   translatedText: string;
   final: boolean;
   state: "provisional" | "pending" | "complete" | "translation-error";
+  /** Server-issued recording metadata survives native/offline history recovery. */
+  historyGeneration?: number;
+  sessionStartedAt?: string;
 };
 export type TranslationMemory = { source: string; target: string };
 export type Translate = (

@@ -66,11 +66,12 @@ async function reconcile(session: Session): Promise<AccountUsage> {
   if (!config.relayUrl) throw new Error('Subscription syncing is not configured yet.')
   const response = await fetch(`${config.relayUrl.replace(/\/$/, '')}/v1/purchases/restore`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${session.access_token}` },
+    headers: { Authorization: `Bearer ${session.access_token}`, ...(config.billingEnvironment==='sandbox'?{'X-Audeeo-Billing-Environment':'sandbox'}:{}) },
     signal: AbortSignal.timeout(10_000),
   })
-  if (!response.ok) throw new Error('Could not sync your subscription with Audeeo.')
-  return response.json() as Promise<AccountUsage>
+  const result=await response.json()
+  if (!response.ok) throw new Error(result.error || 'Could not sync your subscription with Audeeo.')
+  return result as AccountUsage
 }
 
 export function getSubscription(session: Session) {
@@ -101,6 +102,7 @@ export function getSubscriptionPlans(session: Session): Promise<SubscriptionPlan
 
 export function purchaseSubscription(session: Session, id: SubscriptionPlan['id']) {
   return exclusive(async () => {
+    if(config.billingEnvironment==='sandbox' && !(await reconcile(session)).sandbox) throw new Error('Sandbox checkout is unavailable for this account.')
     const sdk = await client(session)
     const offering = (await sdk.getOfferings()).current
     const plan = id === 'yearly' ? offering?.annual : offering?.monthly
@@ -121,4 +123,32 @@ export function purchaseSubscription(session: Session, id: SubscriptionPlan['id'
       throw reason
     }
   })
+}
+
+export {type MinutePackOffer,type PackPurchaseResult} from '../../../shared/minutePacks'
+import {minutePacks,type MinutePackId,type MinutePackOffer,type PackPurchaseResult} from '../../../shared/minutePacks'
+export const refreshMinuteBalance=reconcile
+export function getMinutePacks(session:Session):Promise<MinutePackOffer[]> {
+ return exclusive(async()=>{
+  const offering=(await (await client(session)).getOfferings()).all.minute_packs
+  return minutePacks.flatMap(pack=>{const pkg=offering?.availablePackages.find(p=>p.identifier===pack.id && p.webBillingProduct.identifier===pack.web)
+   return pkg?[{id:pack.id,minutes:pack.minutes,price:pkg.webBillingProduct.currentPrice.formattedPrice,productID:pack.web}]:[]})
+ })
+}
+export function buyMinutePack(session:Session,id:MinutePackId):Promise<PackPurchaseResult> {
+ return exclusive(async()=>{
+  if(config.billingEnvironment==='sandbox' && !(await reconcile(session)).sandbox) throw new Error('Sandbox checkout is unavailable for this account.')
+  const sdk=await client(session),pack=minutePacks.find(p=>p.id===id)
+  const offering=(await sdk.getOfferings()).all.minute_packs
+  const pkg=offering?.availablePackages.find(p=>p.identifier===id && p.webBillingProduct.identifier===pack?.web)
+  if(!pkg)throw new Error('Minute pack unavailable.')
+  const {PurchasesError,ErrorCode}=await import('@revenuecat/purchases-js')
+  try{const result=await sdk.purchase({rcPackage:pkg,customerEmail:session.user.email});return {status:'pending',transactionId:result.storeTransaction.storeTransactionId,productID:pack!.web}}
+  catch(e){if(e instanceof PurchasesError&&e.errorCode===ErrorCode.UserCancelledError)return {status:'cancelled'};throw e}
+ })
+}
+
+export async function packPurchaseStatus(session:Session,transactionId:string,productID:string,after=0):Promise<import('../../../shared/minutePacks').PackPurchaseStatus> {
+ const r=await fetch(`${config.relayUrl.replace(/\/$/,'')}/v1/purchases/status?transaction=${encodeURIComponent(transactionId)}&product=${encodeURIComponent(productID)}&after=${after}`,{headers:{Authorization:`Bearer ${session.access_token}`,...(config.billingEnvironment==='sandbox'?{'X-Audeeo-Billing-Environment':'sandbox'}:{})},signal:AbortSignal.timeout(10000)});
+ if(!r.ok)throw new Error('Purchase sync unavailable');return r.json();
 }

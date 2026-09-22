@@ -32,8 +32,18 @@ export const supabase =
 export const relayURL = config.relayUrl || "http://127.0.0.1:8787";
 async function authRedirectURL() {
   return isTauri()
-    ? invoke<string>("oauth_redirect_url")
+    ? nativeAuthCommand<string>("oauth_redirect_url")
     : config.authRedirectUrl || location.origin;
+}
+async function nativeAuthCommand<T>(command: string, args?: { url: string }): Promise<T> {
+  try {
+    return await invoke<T>(command, args);
+  } catch (error) {
+    // Tauri serializes Rust command errors as strings, not Error instances.
+    throw error instanceof Error ? error : new Error(
+      typeof error === "string" ? error : "Couldn’t start browser sign-in. Please try again.",
+    );
+  }
 }
 export async function signIn(provider: "apple" | "google") {
   if (!supabase) throw new Error("Sign-in is not configured in this build.");
@@ -47,7 +57,7 @@ export async function signIn(provider: "apple" | "google") {
   });
   if (error) throw error;
   if (isTauri() && data.url) {
-    await invoke("begin_oauth", { url: data.url });
+    await nativeAuthCommand("begin_oauth", { url: data.url });
   }
 }
 function emailCredentials(email: string, password: string) {
@@ -144,7 +154,7 @@ async function assertOwner(owner: string) {
     throw new Error("Sign in to the original account to sync this history.");
 }
 export const historyRemote: HistoryRemote = {
-  async write(owner, segments, startedAt) {
+  async write(owner, segments, startedAt, historyGeneration) {
     if (!segments.length) return;
     await assertOwner(owner);
     const sessionId = segments[0].sessionId;
@@ -154,6 +164,7 @@ export const historyRemote: HistoryRemote = {
       p_id: sessionId,
       p_started_at: startedAt ?? null,
       p_segments: segments.map(toRow),
+      p_history_generation: historyGeneration ?? null,
     });
     if (error) throw error;
   },
@@ -165,6 +176,19 @@ export const historyRemote: HistoryRemote = {
     if (error) throw error;
   },
 };
+export type SessionHistorySettings = {saveSessions:boolean;generation:number;retentionDays:30};
+export async function getSessionHistorySettings(owner: string): Promise<SessionHistorySettings> {
+  await assertOwner(owner);
+  const {data,error}=await supabase!.rpc('get_session_history_settings');
+  if(error)throw error;
+  return data as SessionHistorySettings;
+}
+export async function setSessionHistorySettings(owner: string, enabled: boolean): Promise<SessionHistorySettings> {
+  await assertOwner(owner);
+  const {data,error}=await supabase!.rpc('set_session_history_settings',{p_enabled:enabled});
+  if(error)throw error;
+  return data as SessionHistorySettings;
+}
 function toRow(s: Segment) {
   return {
     id: s.id,
@@ -179,17 +203,23 @@ function toRow(s: Segment) {
     state: s.state,
   };
 }
-export async function listHistory(owner: string) {
-  await assertOwner(owner);
-  const { data, error } = await supabase!
-    .from("caption_sessions")
-    .select("id,started_at,source_language,target_language,updated_at,segment_count,duration_ms,preview,summary_title")
-    .eq("owner_id", owner)
-    .is("deleted_at", null)
-    .order("started_at", { ascending: false })
-    .limit(100);
-  if (error) throw error;
-  return (data ?? []).map((row:any)=>({ ...row, segments: [], session_summaries: [] })) as HistorySession[];
+export async function listHistory(owner: string, options: {all?: boolean} = {}) {
+  const rows = new Map<string, HistorySession>();
+  const pageSize = 100;
+  for (let offset=0;;offset+=pageSize) {
+    await assertOwner(owner);
+    const { data, error } = await supabase!
+      .from("caption_sessions")
+      .select("id,started_at,source_language,target_language,updated_at,segment_count,duration_ms,preview,summary_title")
+      .eq("owner_id", owner)
+      .is("deleted_at", null)
+      .order("started_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(offset, offset+pageSize-1);
+    if (error) throw error;
+    for (const row of data ?? []) rows.set(row.id,{...row,segments:[],session_summaries:[]} as HistorySession);
+    if (!options.all || !data || data.length < pageSize) return [...rows.values()];
+  }
 }
 export async function getHistorySession(owner: string, id: string): Promise<HistorySession> {
   await assertOwner(owner);
@@ -209,7 +239,7 @@ export async function accountRequest<T = any>(
 ) {
   const response = await fetch(`${relayURL}${path}`, {
     method,
-    headers: { Authorization: `Bearer ${session.access_token}`, ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
+    headers: { Authorization: `Bearer ${session.access_token}`, ...(config.billingEnvironment === 'sandbox' && (path.startsWith('/v1/purchases/') || path === '/v1/account/usage') ? {'X-Audeeo-Billing-Environment':'sandbox'} : {}), ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     signal: AbortSignal.timeout(timeout),
   });
@@ -237,17 +267,17 @@ export type HistorySession = {
   segments: Array<Record<string, any>>;
   session_summaries: SavedSessionSummary[];
 };
-export function generateSessionSummary(session: Session, id: string, language: string, instructions: string, openaiApiKey?: string) {
+export function generateSessionSummary(session: Session, id: string, language: string, instructions: string) {
   return accountRequest(`/v1/sessions/${encodeURIComponent(id)}/summary`, "POST", session,
-    { language, instructions, ...(openaiApiKey ? { openaiApiKey } : {}) }, 100000) as Promise<SavedSessionSummary>;
+    { language, instructions }, 100000) as Promise<SavedSessionSummary>;
 }
-export function askSessionQuestion(session: Session, id: string, language: string, question: string, openaiApiKey?: string) {
+export function askSessionQuestion(session: Session, id: string, language: string, question: string) {
   return accountRequest(`/v1/sessions/${encodeURIComponent(id)}/questions`, "POST", session,
-    { language, question, ...(openaiApiKey ? { openaiApiKey } : {}) }, 100000) as Promise<{ answer: string; citations: Array<{ quote: string; startMs: number }> }>;
+    { language, question }, 100000) as Promise<{ answer: string; citations: Array<{ quote: string; startMs: number }> }>;
 }
-export function contextFromLink(session: Session, url: string, targetLanguage: string, openaiApiKey?: string) {
-  return accountRequest("/v1/context/from-link", "POST", session,
-    { url, targetLanguage, ...(openaiApiKey ? { openaiApiKey } : {}) }, 100000) as Promise<SessionContext>;
+export function contextFromScreenshot(session: Session, image: string, targetLanguage: string) {
+  return accountRequest("/v1/context/from-screenshot", "POST", session,
+    { image, targetLanguage }, 100000) as Promise<SessionContext>;
 }
 
 let purchasePending = false;
@@ -298,4 +328,8 @@ export async function nativePurchase(action: string, session: Session) {
     unlisten?.();
     purchasePending = false;
   }
+}
+
+export function packPurchaseStatus(session:Session,transactionId:string,productID:string,after=0,quantity=1) {
+ return accountRequest(`/v1/purchases/status?transaction=${encodeURIComponent(transactionId)}&product=${encodeURIComponent(productID)}&after=${after}&quantity=${quantity}`, 'GET',session) as Promise<import('../../shared/minutePacks').PackPurchaseStatus>;
 }

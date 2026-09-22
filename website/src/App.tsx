@@ -1,3 +1,4 @@
+import {LegalPage} from "./pages/Legal";
 import { useEffect, useRef, useState } from 'react'
 import { Link, Route, Routes, useLocation } from 'react-router'
 import { useAuth } from './AuthContext'
@@ -10,7 +11,10 @@ import { Home } from './pages/Home'
 import { Pricing } from './pages/Pricing'
 
 const titles: Record<string, string> = {
-  '/': 'Audeeo — Live captions, made clear',
+  '/privacy': 'Privacy policy — Audeeo',
+  '/terms': 'Terms of use — Audeeo',
+  '/support': 'Support — Audeeo',
+  '/': 'Audeeo — Live captions and translation',
   '/download': 'Download Audeeo',
   '/pricing': 'Pricing — Audeeo',
   '/signin': 'Sign in — Audeeo',
@@ -60,6 +64,9 @@ export default function App() {
             <Route path="/pricing" element={<Pricing />} />
             <Route path="/signin" element={<AuthPage mode="signin" />} />
             <Route path="/register" element={<AuthPage mode="register" />} />
+            <Route path="/privacy" element={<LegalPage page="privacy" />} />
+            <Route path="/terms" element={<LegalPage page="terms" />} />
+            <Route path="/support" element={<LegalPage page="support" />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </div>

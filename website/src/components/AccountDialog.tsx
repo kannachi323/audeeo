@@ -46,8 +46,8 @@ export function AccountDialog({ session, onClose, onSignOut }: {
         <h2 id="account-title">Your Audeeo plan</h2>
         <p className="account-email">{session.user.email}</p>
         <div className="plan-status-card">
-          <div><span>Current plan</span><strong>{status === 'loading' ? 'Checking…' : active ? 'Audeeo Pro' : 'Free'}</strong></div>
-          <span className={`status-badge ${active ? 'active' : ''}`}>{active ? 'Active' : 'Free'}</span>
+          <div><span>Current plan</span><strong>{status === 'loading' ? 'Checking…' : active ? 'Audeeo Pro' : 'No subscription'}</strong></div>
+          <span className={`status-badge ${active ? 'active' : ''}`}>{active ? 'Active' : 'Inactive'}</span>
           {subscription?.expiresAt && <p>{subscription.willRenew ? 'Renews' : 'Ends'} {new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(subscription.expiresAt))}</p>}
           {usage && <p>{usage.unlimited
             ? `${minutes(usage.usedSeconds)} minutes used · unlimited account`

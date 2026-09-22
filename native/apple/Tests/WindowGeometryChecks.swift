@@ -10,8 +10,8 @@ struct WindowGeometryChecks {
                               styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         let raw = Unmanaged.passUnretained(window).toOpaque()
-        // The same borderless panel and grip remain throughout navigation.
-        windowMode(raw, false, false)
+        // Exercise geometry on the floating caption surface.
+        windowMode(raw, true, false)
         resizeMainWindow(raw, 224)
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         window.setFrameTopLeftPoint(NSPoint(x: visible.minX + 80, y: visible.maxY - 60))
@@ -25,7 +25,7 @@ struct WindowGeometryChecks {
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         assert(abs(window.frame.maxY - original.maxY) < 1, "Collapse must preserve placement")
         assert(window.isMovable, "Native window must remain movable")
-        assert(window.styleMask.contains(.fullSizeContentView) && window.titleVisibility == .hidden, "Native titlebar must remain visually hidden")
+        assert(!window.styleMask.contains(.titled) && window.titleVisibility == .hidden, "Native titlebar must remain visually hidden")
         assert(window.contentView?.subviews.filter { $0.identifier?.rawValue == "audeeo-overlay-grip" }.count == 1, "Repeated resize must not duplicate grips")
         let grip = window.contentView?.subviews.first { $0.identifier?.rawValue == "audeeo-overlay-grip" }
         assert((window.contentView?.bounds.maxY ?? 0) - (grip?.frame.maxY ?? 0) >= 6, "Move grip must leave the top resize border clear")
@@ -40,8 +40,8 @@ struct WindowGeometryChecks {
         print("AppKit geometry checks passed: top-edge preservation, width, collapse, movable window, single grip, keyboard movement and screen bounds.")
         windowMode(raw, false, false)
         assert(window.styleMask.contains(.resizable))
-        assert(window.styleMask.contains(.fullSizeContentView))
-        assert(window.standardWindowButton(.closeButton)?.isHidden == true)
+        assert(window.styleMask.contains(.titled) && window.titleVisibility == .visible, "Settings must restore the standard titlebar")
+        assert(window.standardWindowButton(.closeButton)?.isHidden == false)
         let fixedRight=window.frame.maxX
         for step in 0..<100 {
             let width=CGFloat(400+step)

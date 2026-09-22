@@ -4,7 +4,7 @@ Soniox is a separate caption backend implemented in `services/session-relay/src/
 
 ## Local use
 
-Set these root `.env` entries:
+To opt into Soniox locally instead of the OpenAI default, set these root `.env` entries:
 
 ```dotenv
 RELAY_URL=http://127.0.0.1:8787
@@ -15,7 +15,7 @@ SONIOX_MODEL=stt-rt-v5
 
 Start the relay with `npm --prefix services/session-relay run dev`, then start/restart the development app with `npm run desktop` (or `npm run dev` for the browser). The relay reads the root `.env`; the app reads `RELAY_URL` at build/dev-server startup. An already installed release build retains its compiled relay URL.
 
-Audeeo-funded subscriptions use Soniox by default. Set `CAPTION_PROVIDER=openai` and restart the relay only when deliberately changing the funded provider. Users can override the funded default for an individual session from Settings → Providers by supplying their own OpenAI or Soniox key. Explicit WebSocket routes `/v1/realtime/soniox` and `/v1/realtime/openai` remain available for test clients; `/v1/realtime` uses either the validated personal-key selection or the server setting. Each route requires only its own provider key, plus the existing account configuration.
+Audeeo-funded subscriptions use OpenAI by default. Set `CAPTION_PROVIDER=soniox` and restart the relay to opt into Soniox. Users can override the funded default for an individual session from Settings → Providers by supplying their own OpenAI or Soniox key. Explicit WebSocket routes `/v1/realtime/soniox` and `/v1/realtime/openai` remain available for test clients; `/v1/realtime` uses either the validated personal-key selection or the server setting. Each route requires only its own provider key, plus the existing account configuration.
 
 This local configuration does not deploy anything. Production uses Cloudflare secrets/bindings, not the root `.env`. A production app build must use its production `RELAY_URL`.
 
@@ -24,6 +24,8 @@ This local configuration does not deploy anything. Production uses Cloudflare se
 - Native 16 kHz mono PCM16 is sent directly through the SDK; no GPT resampling is used.
 - Matching source/target languages enable transcription. Different languages enable one-way translated captions, including automatic source detection.
 - The leftmost Context icon in the caption toolbar opens a compact popover and stores one local configuration for the next session. Category, background text, names/terms and preferred source/target mappings are validated against a combined 10,000-character limit and sent through Soniox structured context. Context is not logged or synchronized.
+- Ending a session clears its context fields and saved local configuration, including silence stops, disconnects and window closure. Pending draft writes finish before the cleared configuration is persisted.
+- Both source and target menus offer Chinese (Traditional) and Chinese (Simplified); Traditional remains the default. Both caption adapters convert complete text snapshots with OpenCC into the selected script before sending live captions or final history records, preserving phrase context across streamed tokens. Switching between Chinese scripts uses transcription plus script conversion, without requesting Chinese-to-Chinese translation from the provider. Non-Chinese languages retain their original text.
 - Final tokens append once; provisional tokens replace the previous draft. Source and translation tokens are handled independently because translation can arrive later. Segment boundaries are buffering boundaries, not a guarantee of sentence-by-sentence alignment.
 - Endpoint events and bounded text chunks commit confirmed text to the app's existing history flow. Unconfirmed drafts are discarded when closing; they are never promoted into saved final text.
 - Stop waits for Soniox's final results, with a 15-second relay timeout. Provider failures are surfaced without forwarding raw SDK error payloads.

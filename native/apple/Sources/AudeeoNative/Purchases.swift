@@ -2,34 +2,19 @@ import Foundation
 #if canImport(RevenueCat)
 import RevenueCat
 #endif
-#if os(iOS) && canImport(RevenueCatUI)
-import UIKit
-import RevenueCatUI
-
-@MainActor
-private final class BillingPresentation: NSObject, PaywallViewControllerDelegate, CustomerCenterViewControllerDelegate {
-    static var current: BillingPresentation?
-    let finish: () -> Void
-    init(finish: @escaping () -> Void) { self.finish = finish }
-    private func complete() {
-        guard Self.current === self else { return }
-        Self.current = nil
-        finish()
-    }
-    func paywallViewControllerWasDismissed(_ controller: PaywallViewController) { complete() }
-    func customerCenterViewControllerWasDismissed(_ controller: CustomerCenterViewController) { complete() }
-}
-#endif
 
 public typealias PurchaseCallback = @convention(c) (UnsafePointer<CChar>) -> Void
 #if canImport(RevenueCat)
 @MainActor private var billingBusy = false
 private func customerPayload(_ info: CustomerInfo) -> [String: Any] {
     let entitlement = info.entitlements.active["audeeo_pro"]
+    let subscription = entitlement.flatMap { info.subscriptionsByProductIdentifier[$0.productIdentifier] }
     return ["active": entitlement != nil,
             "productID": entitlement?.productIdentifier as Any? ?? NSNull(),
             "expiresAt": entitlement?.expirationDate.map { ISO8601DateFormatter().string(from: $0) } as Any? ?? NSNull(),
             "willRenew": entitlement?.willRenew ?? false,
+            "paidPrice": subscription?.price?.formatted as Any? ?? NSNull(),
+            "periodType": subscription.map { String(describing: $0.periodType).lowercased() } as Any? ?? NSNull(),
             "managementURL": info.managementURL?.absoluteString as Any? ?? NSNull()]
 }
 #endif
@@ -61,6 +46,29 @@ public func purchaseAction(_ operation: UnsafePointer<CChar>, _ owner: UnsafePoi
                 var result = customerPayload(try await Purchases.shared.restorePurchases())
                 result["restored"] = true
                 finish(result)
+            case "packs":
+                let offering = try await Purchases.shared.offerings().all["minute_packs"]
+                let packs: [[String: Any]] = [60,180,600].compactMap { minutes in
+                    let id = "minutes_\(minutes)"
+                    guard let package = offering?.availablePackages.first(where: { $0.identifier == id && $0.storeProduct.productIdentifier == "audeeo_\(id)" }) else { return nil }
+                    let formatter = package.storeProduct.priceFormatter
+                    let prices = (1...10).compactMap { quantity in
+                        formatter?.string(from: NSDecimalNumber(decimal: package.storeProduct.price * Decimal(quantity)))
+                    }
+                    return ["id":id,"minutes":minutes,"price":package.storeProduct.localizedPriceString,"productID":package.storeProduct.productIdentifier,"pricesByQuantity":prices]
+                }
+                finish(["packs":packs])
+            case let value where value.hasPrefix("pack:"):
+                let parts = value.split(separator: ":", omittingEmptySubsequences: false)
+                guard parts.count == 2 || parts.count == 3,
+                      ["minutes_60", "minutes_180", "minutes_600"].contains(String(parts[1])),
+                      let quantity = Int(parts.count == 3 ? String(parts[2]) : "1"), (1...10).contains(quantity)
+                else { finish(["error":"Invalid pack quantity."]); return }
+                let id = String(parts[1])
+                let offering = try await Purchases.shared.offerings().all["minute_packs"]
+                guard let package = offering?.availablePackages.first(where: { $0.identifier == id && $0.storeProduct.productIdentifier == "audeeo_\(id)" }) else { finish(["error":"Minute pack unavailable."]); return }
+                let purchase = try await Purchases.shared.purchase(PurchaseParams.Builder(package: package).with(quantity: quantity).build())
+                finish(["cancelled":purchase.userCancelled,"purchased":!purchase.userCancelled,"transactionId":purchase.transaction?.transactionIdentifier ?? ""])
             case "offer":
                 let offering = try await Purchases.shared.offerings().current
                 let plans: [[String: Any]] = [("yearly", offering?.annual), ("monthly", offering?.monthly)].compactMap { plan, package in
@@ -77,31 +85,6 @@ public func purchaseAction(_ operation: UnsafePointer<CChar>, _ owner: UnsafePoi
                 result["cancelled"] = purchase.userCancelled
                 result["purchased"] = !purchase.userCancelled
                 finish(result)
-            case "paywall", "manage":
-                #if os(iOS) && canImport(RevenueCatUI)
-                guard var presenter = UIApplication.shared.connectedScenes
-                    .compactMap({ $0 as? UIWindowScene }).filter({ $0.activationState == .foregroundActive })
-                    .flatMap({ $0.windows }).first(where: { $0.isKeyWindow })?.rootViewController else {
-                    finish(["error": "Open Audeeo before managing subscriptions."]); return
-                }
-                while let presented = presenter.presentedViewController { presenter = presented }
-                let coordinator = BillingPresentation {
-                    Task { @MainActor in
-                        do { finish(customerPayload(try await Purchases.shared.customerInfo(fetchPolicy: .fetchCurrent))) }
-                        catch { finish(["error": "Could not refresh subscription status. Try Refresh purchases."]) }
-                    }
-                }
-                BillingPresentation.current = coordinator
-                let controller: UIViewController
-                if action == "paywall" {
-                    let paywall = PaywallViewController(displayCloseButton: true)
-                    paywall.delegate = coordinator
-                    controller = paywall
-                } else { controller = CustomerCenterViewController(delegate: coordinator) }
-                presenter.present(controller, animated: true)
-                #else
-                finish(["error": "This billing screen is available in the iOS app. Use the plan buttons or your store subscription settings."])
-                #endif
             default: finish(["error": "Unsupported purchase action."])
             }
         } catch {

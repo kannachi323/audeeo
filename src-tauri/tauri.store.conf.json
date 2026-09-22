@@ -1,6 +1,18 @@
 {
- "bundle": {
-  "targets": ["app"],
-  "macOS": {"entitlements":"Entitlements.macOS.plist","minimumSystemVersion":"13.0"}
- }
+  "bundle": {
+    "targets": [
+      "app"
+    ],
+    "macOS": {
+      "entitlements": "Entitlements.macOS.plist",
+      "minimumSystemVersion": "13.0",
+      "signingIdentity": null,
+      "files": {
+        "Resources/PrivacyInfo.xcprivacy": "PrivacyInfo.xcprivacy"
+      }
+    }
+  },
+  "build": {
+    "beforeBuildCommand": "npm run build"
+  }
 }

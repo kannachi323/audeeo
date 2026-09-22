@@ -8,6 +8,7 @@ export type ContextCategory = typeof contextCategories[number];
 export type TranslationTerm = { source: string; target: string };
 export type SessionContext = {
   category: ContextCategory;
+  customCategory?: string;
   text: string;
   terms: string[];
   translationTerms: TranslationTerm[];
@@ -32,6 +33,8 @@ export function sessionContext(value: unknown): SessionContext {
   if (!value || typeof value !== "object") return emptySessionContext();
   const raw = value as Partial<SessionContext>;
   if (!contextCategories.includes(raw.category as ContextCategory)) throw new Error("Choose a supported context category.");
+  if (raw.customCategory !== undefined && (typeof raw.customCategory !== "string" || raw.customCategory.length > 160))
+    throw new Error("Keep the custom category under 160 characters.");
   if (!Array.isArray(raw.terms) || !Array.isArray(raw.translationTerms)) throw new Error("Context terms are invalid.");
   if (typeof raw.text !== "string" || raw.text.length > 10000 || raw.terms.length > 100 || raw.translationTerms.length > 100 ||
       raw.terms.some(term=>typeof term !== "string" || !term.trim() || term.trim().length > 160) ||
@@ -39,6 +42,7 @@ export function sessionContext(value: unknown): SessionContext {
     throw new Error("Context terms are malformed or too long.");
   const result: SessionContext = {
     category: raw.category as ContextCategory,
+    ...(raw.customCategory !== undefined ? {customCategory: raw.customCategory.trim()} : {}),
     text: raw.text.trim(),
     terms: raw.terms.map(term=>clean(term)),
     translationTerms: raw.translationTerms.map(term=>({ source: clean(term.source), target: clean(term.target) })),
@@ -49,7 +53,7 @@ export function sessionContext(value: unknown): SessionContext {
 
 export function contextSize(value: SessionContext) {
   const preset = value.category === "general" || value.category === "custom" ? "" : contextCategoryOptions.find(option=>option.value===value.category)?.label || "";
-  return preset.length + value.text.length + value.terms.reduce((n,term)=>n+term.length,0)
+  return preset.length + (value.customCategory?.length || 0) + value.text.length + value.terms.reduce((n,term)=>n+term.length,0)
     + value.translationTerms.reduce((n,term)=>n+term.source.length+term.target.length,0);
 }
 
@@ -69,9 +73,9 @@ export function formatTranslationTerms(terms: TranslationTerm[]) {
 }
 
 export function sonioxContext(value: SessionContext) {
-  const category = contextCategoryOptions.find(option=>option.value===value.category)?.label;
+  const category = value.category === "custom" ? value.customCategory?.trim() : value.category === "general" ? undefined : contextCategoryOptions.find(option=>option.value===value.category)?.label;
   return {
-    ...(value.category === "general" || value.category === "custom" ? {} : {general:[{key:"domain",value:category!}]}),
+    ...(category ? {general:[{key:"domain",value:category}]} : {}),
     ...(value.text ? {text:value.text} : {}),
     ...(value.terms.length ? {terms:value.terms} : {}),
     ...(value.translationTerms.length ? {translation_terms:value.translationTerms.map(term=>({...term}))} : {}),

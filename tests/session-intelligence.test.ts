@@ -11,21 +11,21 @@ const modelResult = { title:"Faith",recap:"A recap",keyPoints:["One"],notableTer
 
 describe("session intelligence", () => {
   beforeEach(() => {
-    vi.restoreAllMocks(); mocks.db.mockReset(); mocks.entitlement.mockReset(); mocks.development.mockReturnValue(false);
+    vi.restoreAllMocks(); mocks.db.mockReset(); mocks.entitlement.mockReset(); mocks.entitlement.mockResolvedValue({active:true}); mocks.development.mockReturnValue(false);
     mocks.db.mockImplementation(async (_env:any,path:string,_body?:any,method?:string) => {
       if (path.startsWith("caption_sessions?")) return [{id:"11111111-1111-4111-8111-111111111111",target_language:"en",transcript:transcriptRows,transcript_version:3}];
       if (path === "rpc/save_caption_summary") return {..._body.p_summary,created_at:"now"};
       throw new Error(`unexpected db call ${method} ${path}`);
     });
   });
-  it("uses BYOK, disables OpenAI storage, validates exact quotations, and saves the owned result against the source version", async () => {
+  it("ignores BYOK and uses the server key, disables OpenAI storage, validates exact quotations, and saves the owned result against the source version", async () => {
     const fetch = vi.fn(async (_url:string,options:any) => ({ok:true,json:async()=>({output_text:JSON.stringify(modelResult)})}));
     vi.stubGlobal("fetch",fetch);
-    const result = await generateSummary({SUMMARY_MODEL:"gpt-5.6-luna"} as any,"owner-a","11111111-1111-4111-8111-111111111111",{language:"en",instructions:"",openaiApiKey:"sk-user"});
+    const result = await generateSummary({SUMMARY_MODEL:"gpt-5.6-luna",OPENAI_API_KEY:"server"} as any,"owner-a","11111111-1111-4111-8111-111111111111",{language:"en",instructions:"",openaiApiKey:"sk-user"});
     const request = JSON.parse(fetch.mock.calls[0][1].body);
     expect(request).toMatchObject({model:"gpt-5.6-luna",store:false,reasoning:{effort:"low"},text:{format:{type:"json_schema",strict:true}}});
-    expect(fetch.mock.calls[0][1].headers.Authorization).toBe("Bearer sk-user");
-    expect(mocks.entitlement).not.toHaveBeenCalled();
+    expect(fetch.mock.calls[0][1].headers.Authorization).toBe("Bearer server");
+    expect(mocks.entitlement).toHaveBeenCalled();
     expect(result.content.quotations).toEqual([{text:"Faith seeks understanding.",startMs:1200}]);
     expect(mocks.db).toHaveBeenCalledWith(expect.anything(),"rpc/save_caption_summary",expect.objectContaining({p_owner:"owner-a",p_version:3}));
     vi.unstubAllGlobals();
@@ -37,7 +37,7 @@ describe("session intelligence", () => {
   it("uses hosted web search for a public link and returns validated editable context", async () => {
     const fetch = vi.fn(async (_url:string,options:any) => ({ok:true,json:async()=>({output_text:JSON.stringify({category:"education",text:"A public lecture",terms:["eudaimonia"],translationTerms:[{source:"eudaimonia",target:"幸福生活"}]})})}));
     vi.stubGlobal("fetch",fetch);
-    const result = await contextFromLink({SUMMARY_MODEL:"gpt-5.6-luna"} as any,"owner-a",{url:"https://www.youtube.com/watch?v=example",targetLanguage:"zh",openaiApiKey:"sk-user"});
+    const result = await contextFromLink({SUMMARY_MODEL:"gpt-5.6-luna",OPENAI_API_KEY:"server"} as any,"owner-a",{url:"https://www.youtube.com/watch?v=example",targetLanguage:"zh",openaiApiKey:"sk-user"});
     const request = JSON.parse(fetch.mock.calls[0][1].body);
     expect(request).toMatchObject({store:false,tools:[{type:"web_search"}],text:{format:{type:"json_schema",strict:true}}});
     expect(result).toMatchObject({category:"education",terms:["eudaimonia"]});

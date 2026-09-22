@@ -1,3 +1,4 @@
+import {useAIConsent} from "./AIConsent";
 import { useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { X } from "lucide-react";
@@ -8,10 +9,11 @@ import { Button } from "./Button";
 import { Select } from "./Select";
 
 const time = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
-export function SessionIntelligence({row,session,openaiKey,onSaved,onClose,onProviders,onSubscription}:{
-  row: HistorySession; session: Session; openaiKey?: string; onSaved:(summary:SavedSessionSummary)=>void;
-  onClose:()=>void; onProviders:()=>void; onSubscription:()=>void;
+export function SessionIntelligence({row,session,onSaved,onClose,onSubscription}:{
+  row: HistorySession; session: Session; onSaved:(summary:SavedSessionSummary)=>void;
+  onClose:()=>void; onSubscription:()=>void;
 }) {
+  const {requestConsent} = useAIConsent(session.user.id);
   const existing = row.session_summaries?.[0];
   const preferred = existing?.language || row.target_language;
   const [language,setLanguage] = useState(isTranslationTarget(preferred) ? preferred : "en");
@@ -22,15 +24,17 @@ export function SessionIntelligence({row,session,openaiKey,onSaved,onClose,onPro
   const [question,setQuestion] = useState("");
   const [answers,setAnswers] = useState<Array<{question:string;answer:string;citations:Array<{quote:string;startMs:number}>}>>([]);
   const generate = async () => {
+    if (!await requestConsent("analysis")) return;
     setPending(true); setIssue("");
-    try { const next = await generateSessionSummary(session,row.id,language,instructions,openaiKey); setSummary(next); onSaved(next); }
+    try { const next = await generateSessionSummary(session,row.id,language,instructions); setSummary(next); onSaved(next); }
     catch (error) { setIssue(error instanceof Error ? error.message : "Analysis failed. Retry."); }
     finally { setPending(false); }
   };
   const ask = async () => {
     const prompt = question.trim(); if (!prompt) return;
+    if (!await requestConsent("analysis")) return;
     setPending(true); setIssue("");
-    try { const result = await askSessionQuestion(session,row.id,language,prompt,openaiKey); setAnswers(items=>[...items,{question:prompt,...result}]); setQuestion(""); }
+    try { const result = await askSessionQuestion(session,row.id,language,prompt); setAnswers(items=>[...items,{question:prompt,...result}]); setQuestion(""); }
     catch (error) { setIssue(error instanceof Error ? error.message : "Question failed. Retry."); }
     finally { setPending(false); }
   };
@@ -43,7 +47,7 @@ export function SessionIntelligence({row,session,openaiKey,onSaved,onClose,onPro
         <label>Instructions <span>(optional)</span><textarea value={instructions} maxLength={2000} placeholder="What should the summary focus on?" onChange={event=>setInstructions(event.target.value)}/></label>
         <Button variant="outline" disabled={pending} onClick={()=>void generate()}>{pending ? "Working…" : content ? "Regenerate" : "Generate"}</Button>
       </div>
-      {issue && <div className="intelligence-error" role="alert"><p>{issue}</p>{issue.includes("subscribe") && <div><Button onClick={onProviders}>Add OpenAI key</Button><Button onClick={onSubscription}>View subscription</Button></div>}</div>}
+      {issue && <div className="intelligence-error" role="alert"><p>{issue}</p>{/subscribe|minute pack/i.test(issue) && <div><Button onClick={onSubscription}>View plans & packs</Button></div>}</div>}
       {content && <div className="intelligence-result">
         <p className="summary-recap">{content.recap}</p>
         {!!content.keyPoints.length && <section><h3>Key points</h3><ul>{content.keyPoints.map((item,index)=><li key={index}>{item}</li>)}</ul></section>}

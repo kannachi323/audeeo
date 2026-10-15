@@ -1,4 +1,4 @@
-import { speakerKey, type Segment } from "./segment";
+import { speakerKey, type Segment } from "./segment.js";
 
 export type Turn = {
   speaker: string;

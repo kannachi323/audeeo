@@ -1,4 +1,4 @@
-import { identityFormat, type Channel, type Language, type Segment, type SegmentFormat, type Word } from "./segment";
+import { identityFormat, type Channel, type Language, type Segment, type SegmentFormat, type Word } from "./segment.js";
 
 export type SonioxToken = {
   text: string;

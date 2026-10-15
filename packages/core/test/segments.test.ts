@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SonioxCaptions, sonioxConfig, Transcript, type Segment } from "../src";
+import { SonioxCaptions, sonioxConfig, Transcript, type Segment } from "../src/index.js";
 
 const result = (tokens: unknown[]) => ({ tokens }) as Parameters<SonioxCaptions["ingest"]>[0];
 

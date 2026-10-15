@@ -1,4 +1,4 @@
-import type { Language, Segment as BaseSegment } from "./segment";
+import type { Language, Segment as BaseSegment } from "./segment.js";
 
 export type TranslationMemory = { source: string; target: string };
 export type Translate<L extends string = Language> = (

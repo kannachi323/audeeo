@@ -1,6 +1,6 @@
-import { AudioEncoder, OpenAICaptions, sessionConfig } from "./openai";
-import { identityFormat, type Language, type Segment, type SegmentFormat } from "./segment";
-import { SonioxCaptions, sonioxConfig, type SonioxContext, type SonioxResult } from "./soniox";
+import { AudioEncoder, OpenAICaptions, sessionConfig } from "./openai.js";
+import { identityFormat, type Language, type Segment, type SegmentFormat } from "./segment.js";
+import { SonioxCaptions, sonioxConfig, type SonioxContext, type SonioxResult } from "./soniox.js";
 
 /** A provider WebSocket, supplied by the host app (browser, Tauri, Node). */
 export type SocketMessage = { type: "Text"; data: string } | { type: "Close" } | { type: string; data?: unknown };

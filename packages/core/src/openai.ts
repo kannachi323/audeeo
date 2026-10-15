@@ -1,4 +1,4 @@
-import { identityFormat, type Channel, type Language, type Segment, type SegmentFormat } from "./segment";
+import { identityFormat, type Channel, type Language, type Segment, type SegmentFormat } from "./segment.js";
 
 export type OpenAICaptionOptions<L extends string = Language> = {
   /** Defaults to source !== target. */

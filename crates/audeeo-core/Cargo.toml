@@ -1,0 +1,26 @@
+[package]
+name = "audeeo-core"
+version = "0.1.0"
+description = "On-demand audio capture for desktop apps: microphone, system audio and per-process audio as 16 kHz mono PCM16."
+license = "MIT"
+edition = "2021"
+rust-version = "1.80"
+repository = "https://github.com/kannachi323/audeeo"
+
+[lib]
+name = "audeeo_core"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+serde_json = "1"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+wasapi = "0.24"
+
+[build-dependencies]
+swift-rs = { version = "1.0.7", features = ["build"] }
+
+[dev-dependencies]
+serde_json = "1"

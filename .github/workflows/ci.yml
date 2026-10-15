@@ -22,3 +22,13 @@ jobs:
    - run: npm run build
    - run: cargo check --manifest-path src-tauri/Cargo.toml
    - run: swift build --package-path native/apple --product AudeeoNative
+ audeeo-core:
+  strategy:
+   matrix:
+    os: [macos-latest, windows-latest, ubuntu-latest]
+  runs-on: ${{ matrix.os }}
+  steps:
+   - uses: actions/checkout@v4
+   - run: cargo test --manifest-path crates/audeeo-core/Cargo.toml
+   - if: runner.os == 'macOS'
+     run: swift build --package-path crates/audeeo-core/apple

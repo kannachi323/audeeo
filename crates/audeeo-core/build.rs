@@ -10,10 +10,20 @@ fn main() {
     if target != "macos" || std::env::var_os("AUDEEO_CORE_SKIP_SWIFT").is_some() {
         return;
     }
+    link_swift();
+}
+
+#[cfg(target_os = "macos")]
+fn link_swift() {
     swift_rs::SwiftLinker::new("13.0")
         .with_package("AudeeoCoreNative", "apple/")
         .link();
     for framework in ["AVFoundation", "CoreAudio", "AppKit"] {
         println!("cargo:rustc-link-lib=framework={framework}");
     }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn link_swift() {
+    panic!("audeeo-core's macOS capture builds on a macOS host; set AUDEEO_CORE_SKIP_SWIFT=1 to type-check elsewhere");
 }

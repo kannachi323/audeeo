@@ -24,6 +24,7 @@ jobs:
    - run: swift build --package-path native/apple --product AudeeoNative
  audeeo-core:
   strategy:
+   fail-fast: false
    matrix:
     os: [macos-latest, windows-latest, ubuntu-latest]
   runs-on: ${{ matrix.os }}
